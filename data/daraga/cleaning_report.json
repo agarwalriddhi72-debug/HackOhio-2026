@@ -1,0 +1,168 @@
+{
+  "input_features": 43914,
+  "dropped_reasons": {
+    "excluded: proposed": 42,
+    "excluded: construction": 18
+  },
+  "drivable_ways_kept_in_main_network": 3539,
+  "drivable_ways_removed_disconnected": 54,
+  "pedestrian_paths_kept": 174,
+  "graph": {
+    "nodes": 28465,
+    "edges": 29504,
+    "nodes_in_main_strongly_connected_component": 28415,
+    "km": 775.3,
+    "edges_by_class": {
+      "primary": 1650,
+      "residential": 11828,
+      "service": 3891,
+      "secondary": 964,
+      "unclassified": 3708,
+      "track": 1639,
+      "tertiary": 5081,
+      "trunk": 723,
+      "living_street": 9,
+      "trunk_link": 11
+    },
+    "one_way_edges": 414,
+    "surface_assumed_pct": 84.2
+  },
+  "synthetic_links_added": [],
+  "poi_layers": {
+    "shelter_candidates": {
+      "kept": 162,
+      "duplicates_removed": 0,
+      "outside_boundary_removed": 4,
+      "unnamed_kept": 0,
+      "not_strongly_connected_kept": 0,
+      "removed": [
+        {
+          "osm_id": 1182143030,
+          "name": null,
+          "category": "community_centre",
+          "snap_m": 22.5,
+          "reason": "unnamed"
+        },
+        {
+          "osm_id": 1118484022,
+          "name": null,
+          "category": "shelter",
+          "snap_m": 140.7,
+          "reason": "unnamed"
+        },
+        {
+          "osm_id": 1117946198,
+          "name": null,
+          "category": "shelter",
+          "snap_m": 15.3,
+          "reason": "unnamed"
+        },
+        {
+          "osm_id": 757263579,
+          "name": "De Vera Elementary School",
+          "category": "school",
+          "snap_m": 836.6,
+          "reason": "more than 300 m from the nearest mapped road"
+        },
+        {
+          "osm_id": 968432863,
+          "name": null,
+          "category": "community_centre",
+          "snap_m": 143.3,
+          "reason": "unnamed"
+        },
+        {
+          "osm_id": 906560133,
+          "name": "Banban Elementary School",
+          "category": "school",
+          "snap_m": 948.1,
+          "reason": "more than 300 m from the nearest mapped road"
+        },
+        {
+          "osm_id": 256985312,
+          "name": null,
+          "category": "place_of_worship",
+          "snap_m": 47.2,
+          "reason": "unnamed"
+        },
+        {
+          "osm_id": 249661043,
+          "name": "AQ Chapel",
+          "category": "place_of_worship",
+          "snap_m": 117.4,
+          "reason": "not reachable both ways on the directed road network (one-way streets)"
+        },
+        {
+          "osm_id": 1118484019,
+          "name": null,
+          "category": "shelter",
+          "snap_m": 57.6,
+          "reason": "unnamed"
+        },
+        {
+          "osm_id": 1323092134,
+          "name": null,
+          "category": "place_of_worship",
+          "snap_m": 28.4,
+          "reason": "unnamed"
+        },
+        {
+          "osm_id": 1391181348,
+          "name": "Del Rosario Elementary School",
+          "category": "school",
+          "snap_m": 918.1,
+          "reason": "more than 300 m from the nearest mapped road"
+        },
+        {
+          "osm_id": 968891190,
+          "name": "San Isidro Elementary School",
+          "category": "school",
+          "snap_m": 1668.0,
+          "reason": "more than 300 m from the nearest mapped road"
+        },
+        {
+          "osm_id": 963121520,
+          "name": "San Isidro National High School",
+          "category": "school",
+          "snap_m": 1784.8,
+          "reason": "more than 300 m from the nearest mapped road"
+        }
+      ]
+    },
+    "medical_facilities": {
+      "kept": 41,
+      "duplicates_removed": 0,
+      "outside_boundary_removed": 0,
+      "unnamed_kept": 3,
+      "not_strongly_connected_kept": 0
+    },
+    "transport_hubs": {
+      "kept": 5,
+      "duplicates_removed": 0,
+      "outside_boundary_removed": 0,
+      "unnamed_kept": 0,
+      "not_strongly_connected_kept": 0
+    }
+  },
+  "buildings": {
+    "kept_inside_boundary": 38870,
+    "outside_boundary_removed": 374,
+    "far_from_road_over_300m": 1389,
+    "median_snap_m": 26.6
+  },
+  "assumptions": {
+    "speeds_kph": {
+      "trunk": 50,
+      "trunk_link": 40,
+      "primary": 45,
+      "secondary": 40,
+      "tertiary": 35,
+      "unclassified": 30,
+      "residential": 25,
+      "living_street": 15,
+      "service": 15,
+      "track": 10
+    },
+    "unpaved_speed_factor": 0.7
+  }
+}
