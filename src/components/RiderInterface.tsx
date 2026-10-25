@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Resident, Vehicle, Shelter } from '../types';
-import { Accessibility, Volume2, CheckCircle2, AlertCircle, Phone, MapPin, Sparkles, User, RefreshCw, Clock, ShieldCheck, HeartHandshake } from 'lucide-react';
+import { Resident, Vehicle, Shelter, WeatherState } from '../types';
+import { Accessibility, Volume2, CheckCircle2, AlertCircle, Phone, MapPin, Sparkles, User, RefreshCw, Clock, ShieldCheck, HeartHandshake, ShieldAlert, Radio } from 'lucide-react';
 
 interface Props {
   residents: Resident[];
@@ -19,6 +19,9 @@ interface Props {
   highContrast: boolean;
   activeRiderId?: string | null;
   onSelectActiveRider?: (id: string | null) => void;
+  weather?: WeatherState | null;
+  soundUnlocked?: boolean;
+  onUnlockSound?: () => void;
 }
 
 const QUICK_BARANGAYS = [
@@ -46,6 +49,9 @@ export const RiderInterface: React.FC<Props> = ({
   highContrast,
   activeRiderId,
   onSelectActiveRider,
+  weather,
+  soundUnlocked,
+  onUnlockSound,
 }) => {
   // If activeRiderId is set, track that specific rider. If not, default to the user's latest request or null
   const [localRiderId, setLocalRiderId] = useState<string | null>(activeRiderId || (residents.length > 0 ? residents[0].id : null));
@@ -180,6 +186,72 @@ export const RiderInterface: React.FC<Props> = ({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {/* 1. Mobile Audio / Siren Unlock Banner */}
+      {!soundUnlocked && onUnlockSound && (
+        <button
+          type="button"
+          onClick={onUnlockSound}
+          className="w-full p-3.5 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 border-2 border-amber-400 text-amber-200 text-xs font-black flex items-center justify-between gap-3 transition-all cursor-pointer shadow-lg animate-pulse"
+        >
+          <div className="flex items-center gap-3">
+            <Volume2 className="w-5 h-5 text-amber-400 shrink-0" />
+            <div className="text-left">
+              <div>Tap to Enable Sound Siren &amp; Vibration Alerts on this Phone</div>
+              <div className="text-[10px] text-amber-300 font-normal">Pindutin para marinig ang sirena at babala sa inyong telepono</div>
+            </div>
+          </div>
+          <span className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs uppercase shrink-0 shadow">
+            Enable Alerts
+          </span>
+        </button>
+      )}
+
+      {/* 2. Active Disaster Hazard Warning Alert Card */}
+      {weather && weather.status === 'ALERT_ACTIVE' && (
+        <div className="bg-gradient-to-r from-red-950 via-amber-950/90 to-slate-900 border-2 border-red-500 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-3 ring-4 ring-red-500/30">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-red-500/30 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-red-600/30 border border-red-500/60 flex items-center justify-center text-red-400 shrink-0 shadow-inner">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-red-600 text-white animate-pulse">
+                    EMERGENCY HAZARD WARNING
+                  </span>
+                  <span className="text-xs text-amber-300 font-mono">
+                    {weather.primaryDisaster || 'Severe Weather'}
+                  </span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-white mt-1">
+                  {weather.scenarioName}
+                </h3>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const msg = `Disaster warning in effect for Daraga: ${weather.primaryDisaster || 'Severe Weather'}. Priority evacuation shuttles with wheelchair ramps are operating. Please request your rescue bus.`;
+                const tl = `Babala sa kalamidad sa Daraga: May banta ng ${weather.primaryDisaster || 'kalamidad'}. Bukas na po ang libreng saklolo para sa mga nakatatanda at may kapansanan. Humiling na po ng inyong sundo.`;
+                handleReadStatusAloud(msg, tl);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase flex items-center gap-2 transition-all cursor-pointer shadow-md shrink-0"
+            >
+              <Volume2 className="w-4 h-4" />
+              <span>Listen to Warning &bull; Pakinggan</span>
+            </button>
+          </div>
+
+          <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-medium">
+            PAGASA &amp; PHIVOLCS emergency models indicate severe conditions in Daraga, Albay. Accessible transport vehicles are mobilized to prioritize seniors (60+) and persons with disabilities.
+          </p>
+          <p className="text-xs text-amber-200/95 italic font-medium">
+            🇵🇭 Babala: May umiiral na banta sa panahon. Pindutin ang form sa ibaba para magpasundo sa inyong tahanan bago tumaas ang baha o lumala ang bagyo.
+          </p>
+        </div>
+      )}
+
       {/* If rider already submitted a request, show ONLY their own clean status card */}
       {currentRider ? (
         <div className="space-y-6">

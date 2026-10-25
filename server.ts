@@ -38,7 +38,7 @@ export interface Resident {
   phone: string;
   age: number;
   ageGroup: 'senior' | 'adult' | 'child';
-  need: 'none' | 'elderly' | 'wheelchair' | 'stretcher' | 'physical_help' | 'infant';
+  need: 'none' | 'elderly' | 'elderly_general' | 'wheelchair' | 'stretcher' | 'cane_help' | 'physical_help' | 'infant' | string;
   notes: string;
   barangay: string;
   lon: number;
@@ -153,6 +153,39 @@ let residents: Resident[] = [];
 let vehicles: Vehicle[] = [];
 let blockedEdges = new Set<number>();
 let floodedEdges = new Map<number, number>(); // eid -> multiplier
+
+export interface AppNotification {
+  id: string;
+  type: 'hazard_alert' | 'driver_assigned' | 'new_rider' | 'bus_full' | 'shelter_full' | 'general';
+  title: string;
+  message: string;
+  tagalog?: string;
+  recipient: 'all' | 'rider' | 'driver' | 'shelter';
+  timestamp: string;
+  read: boolean;
+}
+
+let serverNotifications: AppNotification[] = [];
+
+function broadcastServerNotification(notif: {
+  type: AppNotification['type'];
+  title: string;
+  message: string;
+  tagalog?: string;
+  recipient: 'all' | 'rider' | 'driver' | 'shelter';
+}): AppNotification {
+  const newNotif: AppNotification = {
+    ...notif,
+    id: `srv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    read: false,
+  };
+  serverNotifications.unshift(newNotif);
+  if (serverNotifications.length > 50) {
+    serverNotifications = serverNotifications.slice(0, 50);
+  }
+  return newNotif;
+}
 
 // Curated Test Scenarios from testCases.py
 const TEST_CASE_SCENARIOS = [
@@ -858,6 +891,30 @@ function seedDefaultState() {
   }
 
   weatherState = calculateWeatherRisk(weatherState);
+
+  // Seed initial notifications
+  serverNotifications = [
+    {
+      id: `init-hazard-${Date.now()}`,
+      type: 'hazard_alert',
+      title: 'EMERGENCY ALERT: Typhoon Warning (Signal #2)',
+      message: 'High risk detected from 50-year Daraga historical model. Priority evacuation protocol active for seniors and PWDs.',
+      tagalog: 'BABALA SA KALAMIDAD: May banta ng Bagyo sa Daraga. Nagsisimula na ang libreng paglikas.',
+      recipient: 'all',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      read: false,
+    },
+    {
+      id: `init-welcome-${Date.now()}`,
+      type: 'general',
+      title: 'A.R.K System Initialized',
+      message: 'Evacuation routing online for Daraga, Albay. 28,465 road nodes active.',
+      tagalog: 'Bukas na ang sistema ng A.R.K para sa paglikas sa Daraga.',
+      recipient: 'all',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      read: false,
+    },
+  ];
 }
 
 // --- API ENDPOINTS ---
@@ -875,6 +932,45 @@ app.get('/api/initial-data', (_req: Request, res: Response) => {
     floodedEdgesCount: floodedEdges.size,
     weatherState,
     testCaseScenarios: TEST_CASE_SCENARIOS,
+    notifications: serverNotifications,
+    serverInfo: {
+      appUrl: 'https://ais-dev-i6m25kdrzku7ox5l2rjvje-521647064105.us-west1.run.app',
+    },
+  });
+});
+
+// Notifications Management
+app.get('/api/notifications', (_req: Request, res: Response) => {
+  res.json(serverNotifications);
+});
+
+app.post('/api/notifications', (req: Request, res: Response) => {
+  const { type, title, message, tagalog, recipient } = req.body;
+  if (!title || !message) {
+    return res.status(400).json({ error: 'Title and message are required.' });
+  }
+  const notif = broadcastServerNotification({
+    type: type || 'general',
+    title,
+    message,
+    tagalog,
+    recipient: recipient || 'all',
+  });
+  res.status(201).json({ success: true, notification: notif });
+});
+
+app.post('/api/notifications/clear', (_req: Request, res: Response) => {
+  serverNotifications = [];
+  res.json({ success: true });
+});
+
+// Server & Public URL Info
+app.get('/api/server-info', (req: Request, res: Response) => {
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+  const proto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+  res.json({
+    appUrl: 'https://ais-dev-i6m25kdrzku7ox5l2rjvje-521647064105.us-west1.run.app',
+    detectedUrl: `${proto}://${host}`,
   });
 });
 
@@ -905,6 +1001,48 @@ app.post('/api/forecast/preset', (req: Request, res: Response) => {
   }
 
   weatherState = calculateWeatherRisk(weatherState);
+
+  // Broadcast natural emergency hazard warning to all devices
+  const isAlertActive = weatherState.status === 'ALERT_ACTIVE';
+  const hazardName = matched ? matched.hazard : weatherState.primaryDisaster || 'Severe Hazard';
+
+  if (isAlertActive) {
+    broadcastServerNotification({
+      type: 'hazard_alert',
+      title: `EMERGENCY ALERT: ${hazardName} Warning Issued`,
+      message: `High risk detected from 50-year Daraga historical model. Priority evacuation protocol active for seniors and PWDs.`,
+      tagalog: `BABALA SA KALAMIDAD: May banta ng ${hazardName}. Nagsisimula na ang libreng paglikas sa Daraga.`,
+      recipient: 'all',
+    });
+    broadcastServerNotification({
+      type: 'hazard_alert',
+      title: 'Action Required: Request Evacuation Bus',
+      message: 'Weather hazard alert in effect. Please request your accessible pickup bus now.',
+      tagalog: 'May babala sa panahon. Pindutin po ang Request Bus para magpasundo nang maaga.',
+      recipient: 'rider',
+    });
+    broadcastServerNotification({
+      type: 'hazard_alert',
+      title: 'Fleet Mobilization: Hazard Active',
+      message: 'Prepare accessible vehicles. Dijkstra routes calculated avoiding flooded segments.',
+      recipient: 'driver',
+    });
+    broadcastServerNotification({
+      type: 'hazard_alert',
+      title: 'Shelter Alert: Inbound Evacuees Expected',
+      message: 'Confirm wheelchair access ramps and intake capacity for incoming evacuees.',
+      recipient: 'shelter',
+    });
+  } else {
+    broadcastServerNotification({
+      type: 'general',
+      title: `Weather Normal: ${weatherState.scenarioName}`,
+      message: 'Weather parameters are currently below hazard warning thresholds.',
+      tagalog: 'Ligtas ang kasalukuyang panahon sa Daraga.',
+      recipient: 'all',
+    });
+  }
+
   res.json(weatherState);
 });
 
@@ -993,6 +1131,22 @@ app.post('/api/residents', (req: Request, res: Response) => {
 
   residents.unshift(newResident);
 
+  broadcastServerNotification({
+    type: 'driver_assigned',
+    title: 'Driver Assigned & En Route',
+    message: `${chosenVehicle ? chosenVehicle.name : 'Rescue Bus'} assigned to pick up ${newResident.name} at ${newResident.barangay}.`,
+    tagalog: `Paparating na po ang sundo para kay ${newResident.name}.`,
+    recipient: 'rider',
+  });
+
+  broadcastServerNotification({
+    type: 'new_rider',
+    title: 'New Priority Rider Added',
+    message: `${newResident.name} (Age: ${newResident.age}, ${newResident.need}) requested pickup at ${newResident.barangay}. Route updated.`,
+    tagalog: `May bagong saklolo: ${newResident.name} sa ${newResident.barangay}. Naidagdag sa ruta.`,
+    recipient: 'driver',
+  });
+
   res.status(201).json({
     resident: newResident,
     assignedVehicle: chosenVehicle ? { id: chosenVehicle.id, name: chosenVehicle.name } : null,
@@ -1050,6 +1204,14 @@ app.post('/api/vehicles/:id/full', (req: Request, res: Response) => {
   // Driver route is trimmed to only proceed directly to the destination shelter drop-off for already-boarded passengers
   vehicle.routeStops = vehicle.routeStops.filter(s => s.type === 'shelter_dropoff' || s.status === 'completed');
   recomputeVehicleRoute(vehicle);
+
+  broadcastServerNotification({
+    type: 'bus_full',
+    title: `${vehicle.name} Marked Full`,
+    message: `Vehicle at maximum capacity. ${reassignedRiderIds.length} waiting riders placed at top of priority queue.`,
+    tagalog: `Puno na po ang sasakyan. Naka-priority kayo sa susunod na darating na bus.`,
+    recipient: 'all',
+  });
 
   res.json({
     success: true,

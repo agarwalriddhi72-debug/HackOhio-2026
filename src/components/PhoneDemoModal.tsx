@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Smartphone,
   QrCode,
@@ -17,6 +17,11 @@ import {
   HelpCircle,
   Layers,
   ChevronRight,
+  ShieldAlert,
+  Send,
+  Radio,
+  Settings,
+  Edit2,
 } from 'lucide-react';
 
 interface Props {
@@ -24,36 +29,42 @@ interface Props {
   onClose: () => void;
   onSelectRole: (role: 'rider' | 'driver' | 'shelter' | 'map' | 'simulator') => void;
   currentRole: string;
+  onTriggerTestAlert?: () => void;
 }
 
-// Active development Cloud Run instance URL
-const CLOUD_RUN_DEV_URL = 'https://ais-dev-y3vouvzsuqsvc457oj5iu6-319531906020.us-east1.run.app';
+// Active live development server URL
+const LIVE_APP_URL = 'https://ais-dev-i6m25kdrzku7ox5l2rjvje-521647064105.us-west1.run.app';
 
 export const PhoneDemoModal: React.FC<Props> = ({
   isOpen,
   onClose,
   onSelectRole,
   currentRole,
+  onTriggerTestAlert,
 }) => {
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
   const [selectedPhoneTab, setSelectedPhoneTab] = useState<'rider' | 'driver' | 'shelter' | 'map'>('rider');
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
-  const [showSafariHelp, setShowSafariHelp] = useState(true);
+  const [customBaseUrl, setCustomBaseUrl] = useState<string>('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [sendingTestAlert, setSendingTestAlert] = useState(false);
+  const [showSafariHelp, setShowSafariHelp] = useState(false);
 
-  if (!isOpen) return null;
-
-  // Determine active accessible URL
-  const getBaseUrl = (): string => {
-    if (typeof window !== 'undefined') {
+  // Compute active base URL: ALWAYS prioritize active browser origin, fallback to verified LIVE_APP_URL
+  const getActiveBaseUrl = (): string => {
+    if (customBaseUrl.trim()) {
+      return customBaseUrl.trim().replace(/\/+$/, '');
+    }
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
       const origin = window.location.origin;
-      if (origin && (origin.includes('run.app') || origin.includes('ais-dev'))) {
+      if (origin && origin !== 'null' && !origin.includes('localhost') && origin.startsWith('http')) {
         return origin;
       }
     }
-    return CLOUD_RUN_DEV_URL;
+    return LIVE_APP_URL;
   };
 
-  const baseUrl = getBaseUrl();
+  const baseUrl = getActiveBaseUrl();
 
   const phoneConfigs = [
     {
@@ -98,6 +109,8 @@ export const PhoneDemoModal: React.FC<Props> = ({
     },
   ];
 
+  if (!isOpen) return null;
+
   const activeConfig = phoneConfigs.find(c => c.id === selectedPhoneTab) || phoneConfigs[0];
   const activeRoleUrl = `${baseUrl}${activeConfig.roleQuery}`;
   const activeHashUrl = `${baseUrl}${activeConfig.roleHash}`;
@@ -118,7 +131,7 @@ export const PhoneDemoModal: React.FC<Props> = ({
         document.body.removeChild(textArea);
       }
       setCopiedLabel(label);
-      setFeedbackNotice(`Copied link for ${label}!`);
+      setFeedbackNotice(`✓ Copied link for ${label}!`);
       setTimeout(() => {
         setCopiedLabel(null);
         setFeedbackNotice(null);
@@ -141,6 +154,34 @@ export const PhoneDemoModal: React.FC<Props> = ({
     }
   };
 
+  // Broadcast a live test hazard warning so user can test alerts on their phone
+  const handleBroadcastTestAlert = async () => {
+    setSendingTestAlert(true);
+    try {
+      if (onTriggerTestAlert) {
+        onTriggerTestAlert();
+      } else {
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'hazard_alert',
+            title: '🚨 EMERGENCY ALERT: Typhoon Warning Issued',
+            message: 'Active hazard warning in effect for Daraga, Albay. Priority accessible evacuation bus protocol active.',
+            tagalog: 'BABALA SA KALAMIDAD: May banta ng Bagyo. Nagsisimula na ang libreng paglikas.',
+            recipient: 'all',
+          }),
+        });
+      }
+      setFeedbackNotice('🚨 Test emergency warning broadcasted! Check connected phones for live audio chime, vibration, and banner alert.');
+      setTimeout(() => setFeedbackNotice(null), 6000);
+    } catch {
+      setFeedbackNotice('Could not broadcast test alert.');
+    } finally {
+      setSendingTestAlert(false);
+    }
+  };
+
   // High-contrast, black-on-white standard QR code: iOS Camera & Safari recognize this instantly!
   const qrSvgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(activeRoleUrl)}&bgcolor=ffffff&color=000000&margin=3`;
 
@@ -156,14 +197,14 @@ export const PhoneDemoModal: React.FC<Props> = ({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-xl sm:text-2xl font-black text-white">
-                  A.R.K &bull; Mobile Phone Setup
+                  A.R.K &bull; Connect Mobile Phone
                 </h3>
-                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
-                  PWA Ready
+                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 uppercase">
+                  Live Server Active
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-amber-300/90 font-medium">
-                Accessible, Rescue, and Kinship &bull; 3-Phone Live Synchronized Demo
+                Scan with phone camera &bull; Synchronized disaster evacuation response
               </p>
             </div>
           </div>
@@ -179,21 +220,21 @@ export const PhoneDemoModal: React.FC<Props> = ({
 
         {/* FEEDBACK BANNER */}
         {feedbackNotice && (
-          <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center gap-2 animate-fadeIn">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <div className="p-3.5 rounded-2xl bg-emerald-500/20 border-2 border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center gap-2 animate-fadeIn shadow-lg">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
             <span>{feedbackNotice}</span>
           </div>
         )}
 
-        {/* INSTANT 3-PHONE SIMULATOR SHORTCUT */}
+        {/* INSTANT 3-PHONE SIMULATOR SHORTCUT (Zero external device needed) */}
         <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-blue-500/10 to-emerald-500/20 border-2 border-amber-400/60 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
           <div className="space-y-1 text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start">
               <Layers className="w-4 h-4 text-amber-400" />
-              <span className="text-sm font-black text-white">Need to Demo Right Now On One Screen?</span>
+              <span className="text-sm font-black text-white">Want to see all 3 interfaces right here on your computer?</span>
             </div>
             <p className="text-xs text-slate-300">
-              Launch the <strong>3-Phone Live Synchronized Simulator</strong> to see Phone 1 (Rider), Phone 2 (Driver), and Phone 3 (Shelter) side-by-side!
+              Launch the <strong>3-Phone Live Synchronized Simulator</strong> to run Phone 1 (Rider), Phone 2 (Driver), and Phone 3 (Shelter) simultaneously on one screen!
             </p>
           </div>
           <button
@@ -208,51 +249,14 @@ export const PhoneDemoModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* SAFARI IPHONE CONNECTIVITY GUIDE */}
-        <div className="bg-slate-950 border border-amber-500/40 rounded-2xl p-3.5 sm:p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black uppercase text-amber-400 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 text-amber-400" /> Safari iPhone Scanning Guide:
-            </span>
-            <button
-              onClick={() => setShowSafariHelp(!showSafariHelp)}
-              className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
-            >
-              {showSafariHelp ? 'Hide Tips' : 'Show Tips'}
-            </button>
-          </div>
-
-          {showSafariHelp && (
-            <div className="text-xs text-slate-300 space-y-2 leading-relaxed bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-              <p>
-                <strong className="text-white">Why did Safari not open immediately?</strong> AI Studio Cloud Run development servers run an automatic security cookie check.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                  <span className="font-bold text-amber-300 block mb-0.5">Step 1: Authenticate in Safari</span>
-                  <span className="text-[11px] text-slate-300">
-                    If Safari displays <em>&ldquo;Action required to load your app&rdquo;</em>, tap the blue button <strong>&ldquo;Authenticate in new window&rdquo;</strong> to approve the session.
-                  </span>
-                </div>
-                <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                  <span className="font-bold text-amber-300 block mb-0.5">Step 2: Cross-Site Tracking Tip</span>
-                  <span className="text-[11px] text-slate-300">
-                    On iPhone: In <strong>Settings &gt; Safari</strong>, turn OFF <em>&ldquo;Prevent Cross-Site Tracking&rdquo;</em>, or open the link in <strong>Google Chrome</strong> on your phone.
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ROLE TABS FOR THE 3 PHONES */}
+        {/* ROLE TABS FOR THE PHONES */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
-              <QrCode className="w-4 h-4" /> Select Phone to Generate Direct QR Code:
+              <QrCode className="w-4 h-4" /> Select Phone Interface:
             </span>
             <span className="text-[11px] text-slate-400 hidden sm:inline">
-              Point camera to open that specific role
+              Choose role to generate dedicated URL &amp; QR code
             </span>
           </div>
 
@@ -290,7 +294,7 @@ export const PhoneDemoModal: React.FC<Props> = ({
             <img
               src={qrSvgUrl}
               alt={`QR Code for ${activeConfig.phoneLabel}: ${activeConfig.title}`}
-              className="w-40 h-40 rounded-lg block"
+              className="w-44 h-44 rounded-lg block"
             />
             <span className="text-[11px] font-black text-slate-950 mt-1.5 flex items-center gap-1 font-mono">
               <QrCode className="w-3.5 h-3.5 text-amber-600" /> Scan for {activeConfig.phoneLabel}
@@ -301,7 +305,7 @@ export const PhoneDemoModal: React.FC<Props> = ({
             <div>
               <div className="flex items-center gap-2 justify-center sm:justify-start">
                 <span className="text-xs font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 uppercase">
-                  {activeConfig.phoneLabel} URL
+                  {activeConfig.phoneLabel} Link
                 </span>
                 <span className="text-xs font-bold text-white">
                   {activeConfig.title}
@@ -312,7 +316,7 @@ export const PhoneDemoModal: React.FC<Props> = ({
               </p>
             </div>
 
-            {/* Direct URL text box */}
+            {/* Direct Verified Live URL */}
             <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 font-mono text-[11px] text-amber-300 break-all select-all">
               {activeRoleUrl}
             </div>
@@ -337,7 +341,7 @@ export const PhoneDemoModal: React.FC<Props> = ({
               <button
                 onClick={() => copyToClipboard(activeHashUrl, `${activeConfig.phoneLabel} Hash Link`)}
                 className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
-                title="Use if Safari redirects strip URL parameters"
+                title="Alternative hash link format"
               >
                 <Copy className="w-3.5 h-3.5" />
                 <span>Copy #Hash Link</span>
@@ -360,9 +364,44 @@ export const PhoneDemoModal: React.FC<Props> = ({
                 }}
                 className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-amber-500/30"
               >
-                <span>Switch to this Role &rarr;</span>
+                <span>Switch Screen &rarr;</span>
               </button>
             </div>
+
+            {/* TEST NOTIFICATION TRIGGER */}
+            <div className="pt-2 border-t border-slate-800 flex flex-col sm:flex-row items-center gap-2">
+              <button
+                onClick={handleBroadcastTestAlert}
+                disabled={sendingTestAlert}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-red-600/30 hover:bg-red-600/40 border border-red-500/50 text-red-200 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50"
+              >
+                <ShieldAlert className="w-4 h-4 text-red-400" />
+                <span>{sendingTestAlert ? 'Sending...' : '🚨 Broadcast Test Emergency Warning to Phones'}</span>
+              </button>
+
+              <button
+                onClick={() => setShowCustomInput(!showCustomInput)}
+                className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+              >
+                {showCustomInput ? 'Hide Custom URL' : 'Edit Base URL'}
+              </button>
+            </div>
+
+            {/* Custom URL Input if needed */}
+            {showCustomInput && (
+              <div className="pt-2 border-t border-slate-800">
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  Custom Base URL (optional):
+                </label>
+                <input
+                  type="text"
+                  value={customBaseUrl}
+                  onChange={e => setCustomBaseUrl(e.target.value)}
+                  placeholder={baseUrl}
+                  className="w-full text-xs font-mono px-3 py-2 rounded-xl bg-slate-900 border border-amber-500/50 text-white focus:outline-none focus:border-amber-400"
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -371,7 +410,7 @@ export const PhoneDemoModal: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             <Download className="w-4 h-4 text-amber-400" />
             <h4 className="font-extrabold text-sm sm:text-base text-white">
-              How to Save A.R.K as a Real Phone App (No App Store Needed)
+              Install A.R.K as a Phone App (PWA)
             </h4>
           </div>
 
@@ -412,9 +451,9 @@ export const PhoneDemoModal: React.FC<Props> = ({
 
         {/* Footer */}
         <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
-          <div className="text-xs text-slate-400 flex items-center gap-1.5">
+          <div className="text-xs text-slate-400 flex items-center gap-1.5 font-mono">
             <Globe className="w-3.5 h-3.5 text-amber-400" />
-            <span>Active Cloud Host: <strong className="text-slate-200">ais-dev-...run.app</strong></span>
+            <span>Active Server Host: <strong className="text-amber-300">{baseUrl}</strong></span>
           </div>
 
           <button

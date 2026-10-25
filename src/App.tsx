@@ -7,7 +7,7 @@ import { ShelterInterface } from './components/ShelterInterface';
 import { DaragaMap } from './components/DaragaMap';
 import { CreatorDashboard } from './components/CreatorDashboard';
 import { LiveDemoController } from './components/LiveDemoController';
-import { NotificationCenter, AppNotification, playChime } from './components/NotificationCenter';
+import { NotificationCenter, AppNotification, playChime, triggerVibration, triggerSystemNotification, speakDisasterAlert } from './components/NotificationCenter';
 import { PhoneDemoModal } from './components/PhoneDemoModal';
 import { TriplePhoneSimulator } from './components/TriplePhoneSimulator';
 import {
@@ -58,6 +58,12 @@ export const App: React.FC = () => {
   const [isVehicleStopped, setIsVehicleStopped] = useState<boolean>(false);
   const [vehicleStopLabel, setVehicleStopLabel] = useState<string | undefined>(undefined);
 
+  // Sound & Device Notification Unlock State
+  const [soundUnlocked, setSoundUnlocked] = useState(false);
+  const seenNotifIdsRef = React.useRef<Set<string>>(new Set());
+  const prevWeatherScenarioRef = React.useRef<string | null>(null);
+  const isFirstLoadRef = React.useRef<boolean>(true);
+
   // Notification System State
   const [notifications, setNotifications] = useState<AppNotification[]>([
     {
@@ -74,6 +80,28 @@ export const App: React.FC = () => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [activeToast, setActiveToast] = useState<AppNotification | null>(null);
 
+  // Auto-unlock audio and haptics on first tap/click
+  const handleUnlockSound = useCallback(() => {
+    setSoundUnlocked(true);
+    playChime('success');
+    triggerVibration([200, 100, 200]);
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      setSoundUnlocked(true);
+    };
+    window.addEventListener('click', handleFirstInteraction, { once: true });
+    window.addEventListener('touchstart', handleFirstInteraction, { once: true });
+    return () => {
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+  }, []);
+
   // Helper to dispatch notifications to specific recipients
   const dispatchNotification = useCallback((notif: {
     type: AppNotification['type'];
@@ -89,14 +117,24 @@ export const App: React.FC = () => {
       read: false,
     };
 
+    seenNotifIdsRef.current.add(newNotif.id);
     setNotifications(prev => [newNotif, ...prev.slice(0, 25)]);
     setActiveToast(newNotif);
     playChime(notif.type === 'hazard_alert' ? 'alert' : notif.type === 'bus_full' ? 'alert' : 'info');
+    triggerVibration(notif.type === 'hazard_alert' ? [400, 200, 400, 200, 600] : [200, 100, 200]);
+    triggerSystemNotification(notif.title, notif.message);
 
-    // Auto-dismiss floating toast after 5 seconds
+    // Sync to server so any other connected phone also receives this notification!
+    fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(notif),
+    }).catch(() => {});
+
+    // Auto-dismiss floating toast after 7 seconds
     setTimeout(() => {
       setActiveToast(current => (current?.id === newNotif.id ? null : current));
-    }, 5000);
+    }, 7000);
   }, []);
 
   // Parse URL search parameters and hash on mount (e.g. ?role=driver, ?role=rider, ?role=shelter, #rider) for 3-Phone Live Demo
@@ -134,7 +172,7 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Fetch initial data
+  // Fetch initial data & poll server for state & notification sync
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/initial-data');
@@ -151,6 +189,61 @@ export const App: React.FC = () => {
         if (!activeRiderId && data.residents && data.residents.length > 0) {
           setActiveRiderId(data.residents[0].id);
         }
+
+        // Process Server-Synced Notifications
+        if (data.notifications && Array.isArray(data.notifications)) {
+          const incomingList: AppNotification[] = data.notifications;
+          setNotifications(incomingList);
+
+          // Detect new notifications not yet seen
+          let latestNewNotif: AppNotification | null = null;
+          for (const n of incomingList) {
+            if (!seenNotifIdsRef.current.has(n.id)) {
+              seenNotifIdsRef.current.add(n.id);
+              if (!latestNewNotif) {
+                latestNewNotif = n;
+              }
+            }
+          }
+
+          if (latestNewNotif) {
+            const shouldAlert = !isFirstLoadRef.current || latestNewNotif.type === 'hazard_alert';
+            if (shouldAlert) {
+              setActiveToast(latestNewNotif);
+              playChime(latestNewNotif.type === 'hazard_alert' ? 'alert' : 'info');
+              triggerVibration(latestNewNotif.type === 'hazard_alert' ? [400, 200, 400, 200, 600] : [200, 100, 200]);
+              triggerSystemNotification(latestNewNotif.title, latestNewNotif.message);
+            }
+          }
+        }
+
+        // Check if weather scenario changed to an active alert
+        if (data.weatherState) {
+          if (
+            !isFirstLoadRef.current &&
+            prevWeatherScenarioRef.current &&
+            prevWeatherScenarioRef.current !== data.weatherState.scenario &&
+            data.weatherState.status === 'ALERT_ACTIVE'
+          ) {
+            const alertNotif: AppNotification = {
+              id: `weather-change-${Date.now()}`,
+              type: 'hazard_alert',
+              title: `EMERGENCY ALERT: ${data.weatherState.scenarioName}`,
+              message: `Active hazard warning in effect for Daraga, Albay. Priority accessible evacuation bus protocol active.`,
+              tagalog: `BABALA SA KALAMIDAD: May banta ng ${data.weatherState.primaryDisaster || 'kalamidad'}. Nagsisimula na ang libreng paglikas.`,
+              recipient: 'all',
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              read: false,
+            };
+            setActiveToast(alertNotif);
+            playChime('alert');
+            triggerVibration([400, 200, 400, 200, 600]);
+            triggerSystemNotification(alertNotif.title, alertNotif.message);
+          }
+          prevWeatherScenarioRef.current = data.weatherState.scenario;
+        }
+
+        isFirstLoadRef.current = false;
       }
     } catch (err) {
       console.error('Failed to load initial data:', err);
@@ -161,7 +254,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 6000);
+    const interval = setInterval(fetchData, 3500);
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -486,6 +579,8 @@ export const App: React.FC = () => {
               currentRole={userTab === 'driver' ? 'driver' : userTab === 'shelter' ? 'shelter' : 'rider'}
               activeToast={activeToast}
               onDismissToast={() => setActiveToast(null)}
+              soundEnabled={soundUnlocked}
+              onEnableSound={handleUnlockSound}
             />
 
             {/* Accessibility Buttons */}
@@ -690,6 +785,9 @@ export const App: React.FC = () => {
                   highContrast={highContrast}
                   activeRiderId={activeRiderId}
                   onSelectActiveRider={id => setActiveRiderId(id)}
+                  weather={weatherState}
+                  soundUnlocked={soundUnlocked}
+                  onUnlockSound={handleUnlockSound}
                 />
               )}
 
@@ -791,6 +889,15 @@ export const App: React.FC = () => {
           setUserTab(role);
         }}
         currentRole={userTab}
+        onTriggerTestAlert={() => {
+          dispatchNotification({
+            type: 'hazard_alert',
+            title: '🚨 EMERGENCY ALERT: Typhoon Warning Issued',
+            message: 'Active hazard warning in effect for Daraga, Albay. Priority accessible evacuation bus protocol active.',
+            tagalog: 'BABALA SA KALAMIDAD: May banta ng Bagyo. Nagsisimula na ang libreng paglikas.',
+            recipient: 'all',
+          });
+        }}
       />
 
       {/* FOOTER: A.R.K */}

@@ -115,3 +115,14 @@ export interface TestCaseScenario {
   hazard: string;
   params: any;
 }
+
+export interface AppNotification {
+  id: string;
+  type: 'hazard_alert' | 'driver_assigned' | 'new_rider' | 'bus_full' | 'shelter_full' | 'general';
+  title: string;
+  message: string;
+  tagalog?: string;
+  recipient: 'all' | 'rider' | 'driver' | 'shelter';
+  timestamp: string;
+  read: boolean;
+}
