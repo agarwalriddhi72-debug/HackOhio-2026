@@ -427,15 +427,15 @@ function snapToNearestNode(lon0: number, lat0: number): { nodeId: number; distMe
 
 // Priority Score (combining need severity, age factor, and waiting time)
 function calculatePriorityScore(need: string, ageGroup: string, minutesWaiting: number): number {
-  let severity = 1;
+  let severity = 2;
   if (need === 'stretcher') severity = 5;
   else if (need === 'wheelchair') severity = 4;
-  else if (need === 'physical_help' || need === 'elderly') severity = 3;
-  else if (need === 'infant') severity = 3;
+  else if (need === 'cane_help' || need === 'elderly' || need === 'physical_help') severity = 3;
+  else if (need === 'elderly_general' || need === 'none') severity = 2;
 
-  let ageFactor = 1;
-  if (ageGroup === 'senior') ageFactor = 4;
-  else if (ageGroup === 'child') ageFactor = 2;
+  let ageFactor = 4; // Older adults (60+) given high priority
+  if (ageGroup === 'child') ageFactor = 2;
+  else if (ageGroup === 'adult') ageFactor = 2;
 
   return Math.round((3 * severity + 2 * ageFactor + 0.05 * minutesWaiting) * 10) / 10;
 }
@@ -811,17 +811,17 @@ function seedDefaultState() {
     },
     {
       id: 'res-4',
-      name: 'Elena Morales & Infant',
+      name: 'Lolo Crisanto Pardo',
       phone: '0949-555-1289',
-      age: 32,
-      ageGroup: 'adult',
-      need: 'infant',
-      notes: 'Mother with 4-month-old infant, ground floor water reaching knee height',
+      age: 74,
+      ageGroup: 'senior',
+      need: 'elderly_general',
+      notes: 'General elderly evacuee (74yo), needs transport before road inundation',
       barangay: 'Barangay Malabog',
       lon: 123.6738,
       lat: 13.1250,
       snappedNode: snapToNearestNode(123.6738, 13.1250).nodeId,
-      priorityScore: calculatePriorityScore('infant', 'child', 10),
+      priorityScore: calculatePriorityScore('elderly_general', 'senior', 10),
       status: 'waiting',
       requestedAt: new Date(Date.now() - 10 * 60000).toISOString(),
       minutesWaiting: 10,
@@ -1205,9 +1205,24 @@ app.post('/api/roads/block', (req: Request, res: Response) => {
   });
 });
 
-// 8. Interactive Demo Simulation
+// 8. Vehicle Live Position Update (for real-time animation on map)
+app.post('/api/vehicles/:id/position', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { coords, node } = req.body;
+  const vehicle = vehicles.find(v => v.id === id);
+  if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' });
+  if (coords && Array.isArray(coords)) {
+    vehicle.currentCoords = [Number(coords[0]), Number(coords[1])];
+  }
+  if (node !== undefined) {
+    vehicle.currentNode = Number(node);
+  }
+  res.json({ success: true, vehicle });
+});
+
+// 9. Interactive Demo Simulation (supports custom random person input)
 app.post('/api/demo/run-scenario', (req: Request, res: Response) => {
-  const { scenarioId } = req.body;
+  const { scenarioId, customPerson } = req.body;
   const targetScenario = TEST_CASE_SCENARIOS.find(s => s.id === scenarioId) || TEST_CASE_SCENARIOS[0];
 
   // Set weather condition from testCases.py
@@ -1220,20 +1235,31 @@ app.post('/api/demo/run-scenario', (req: Request, res: Response) => {
   };
   weatherState = calculateWeatherRisk(weatherState);
 
-  // Add an urgent elderly resident demo request from flood-prone Barangay Bañag
+  // Use custom person info if provided, or default realistic elderly person
+  const riderName = customPerson?.name || 'Nanay Beatriz Magallanes (Demo Rider)';
+  const riderPhone = customPerson?.phone || '0919-888-2341';
+  const riderAge = Number(customPerson?.age) || 86;
+  const riderNeed = customPerson?.need || 'wheelchair';
+  const riderBarangay = customPerson?.barangay || 'Barangay Bañag';
+  const riderLon = customPerson?.lon !== undefined ? Number(customPerson.lon) : 123.7082;
+  const riderLat = customPerson?.lat !== undefined ? Number(customPerson.lat) : 13.1510;
+  const riderNotes = customPerson?.notes || 'Urgent: High water flood warning. Wheelchair accessible transport required immediately.';
+
+  const snapped = snapToNearestNode(riderLon, riderLat);
+
   const demoRider: Resident = {
     id: `demo-${Date.now()}`,
-    name: 'Nanay Beatriz Magallanes (Demo Rider)',
-    phone: '0919-888-2341',
-    age: 86,
+    name: riderName,
+    phone: riderPhone,
+    age: riderAge,
     ageGroup: 'senior',
-    need: 'wheelchair',
-    notes: 'Urgent: High water flood warning. Wheelchair accessible transport required immediately.',
-    barangay: 'Barangay Bañag Riverbank',
-    lon: 123.7082,
-    lat: 13.1510,
-    snappedNode: snapToNearestNode(123.7082, 13.1510).nodeId,
-    priorityScore: 3 * 4 + 2 * 4 + 5, // Top priority score
+    need: riderNeed,
+    notes: riderNotes,
+    barangay: riderBarangay,
+    lon: riderLon,
+    lat: riderLat,
+    snappedNode: snapped.nodeId,
+    priorityScore: calculatePriorityScore(riderNeed, 'senior', 10),
     status: 'assigned',
     assignedVehicleId: 'VAN-02',
     assignedShelterId: 1,
@@ -1249,6 +1275,7 @@ app.post('/api/demo/run-scenario', (req: Request, res: Response) => {
     van.assignedRequestIds.unshift(demoRider.id);
     van.seatsFree = Math.max(0, van.seatsFree - 1);
     van.wheelchairFree = Math.max(0, van.wheelchairFree - 1);
+    van.status = 'en_route';
 
     const targetShelter = shelters[0];
     van.routeStops = [

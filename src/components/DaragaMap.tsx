@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Shelter, Vehicle, Resident } from '../types';
-import { Layers, MapPin, Truck, Home, PlusCircle, CheckCircle2 } from 'lucide-react';
+import { Layers, MapPin, Truck, Home, PlusCircle, AlertOctagon } from 'lucide-react';
 
 interface Props {
   shelters: Shelter[];
@@ -11,6 +11,11 @@ interface Props {
   transportHubs: any[];
   onMapClickLocation?: (coords: { lon: number; lat: number }) => void;
   highContrast: boolean;
+  animatedVehicleId?: string | null;
+  animatedCoords?: [number, number] | null; // [lon, lat] during live simulation
+  isUserView?: boolean;
+  isVehicleStopped?: boolean;
+  vehicleStopLabel?: string;
 }
 
 export const DaragaMap: React.FC<Props> = ({
@@ -21,6 +26,11 @@ export const DaragaMap: React.FC<Props> = ({
   transportHubs,
   onMapClickLocation,
   highContrast,
+  animatedVehicleId,
+  animatedCoords,
+  isUserView = false,
+  isVehicleStopped = false,
+  vehicleStopLabel,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -30,15 +40,18 @@ export const DaragaMap: React.FC<Props> = ({
   const shelterLayerRef = useRef<L.LayerGroup | null>(null);
   const vehicleLayerRef = useRef<L.LayerGroup | null>(null);
   const residentLayerRef = useRef<L.LayerGroup | null>(null);
+  const stopsLayerRef = useRef<L.LayerGroup | null>(null);
   const routesLayerRef = useRef<L.LayerGroup | null>(null);
   const medicalLayerRef = useRef<L.LayerGroup | null>(null);
   const hubsLayerRef = useRef<L.LayerGroup | null>(null);
 
+  // Markers map for smooth live repositioning
+  const vehicleMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+
   // Toggles
   const [showShelters, setShowShelters] = useState(true);
   const [showVehicles, setShowVehicles] = useState(true);
-  const [showResidents, setShowResidents] = useState(true);
-  const [showMedical, setShowMedical] = useState(true);
+  const [showStops, setShowStops] = useState(true);
   const [selectedEntity, setSelectedEntity] = useState<any>(null);
 
   // Initialize Map
@@ -47,27 +60,26 @@ export const DaragaMap: React.FC<Props> = ({
 
     // Center of Daraga, Albay [lat, lon]
     const map = L.map(mapContainerRef.current, {
-      center: [13.144, 123.697],
+      center: [13.146, 123.705],
       zoom: 14,
       minZoom: 11,
       maxZoom: 18,
     });
 
-    // Dark high-contrast OpenStreetMap tiles
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors &bull; Daraga LGU Evac Graph',
+      attribution: '&copy; OpenStreetMap contributors &bull; Daraga Road Graph',
       className: highContrast ? 'dark-tile-layer' : '',
     }).addTo(map);
 
-    // Initialize Layer Groups
     shelterLayerRef.current = L.layerGroup().addTo(map);
     vehicleLayerRef.current = L.layerGroup().addTo(map);
     residentLayerRef.current = L.layerGroup().addTo(map);
+    stopsLayerRef.current = L.layerGroup().addTo(map);
     routesLayerRef.current = L.layerGroup().addTo(map);
     medicalLayerRef.current = L.layerGroup().addTo(map);
     hubsLayerRef.current = L.layerGroup().addTo(map);
 
-    // Map click handler to place pin
+    // Map click: ONLY reports coordinate if a callback was provided. DOES NOT switch views/tabs!
     map.on('click', (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng;
       if (onMapClickLocation) {
@@ -75,7 +87,6 @@ export const DaragaMap: React.FC<Props> = ({
       }
     });
 
-    // Fetch clipping boundary GeoJSON
     fetch('/api/clipping-boundary')
       .then(res => res.json())
       .then(geoJsonData => {
@@ -83,14 +94,14 @@ export const DaragaMap: React.FC<Props> = ({
         boundaryLayerRef.current = L.geoJSON(geoJsonData, {
           style: {
             color: '#f59e0b',
-            weight: 2.5,
-            dashArray: '6, 6',
+            weight: 2,
+            dashArray: '5, 5',
             fillColor: '#f59e0b',
-            fillOpacity: 0.04,
+            fillOpacity: 0.03,
           },
         }).addTo(map);
       })
-      .catch(() => console.log('Boundary loaded or offline'));
+      .catch(() => {});
 
     mapInstanceRef.current = map;
 
@@ -109,7 +120,6 @@ export const DaragaMap: React.FC<Props> = ({
     if (!showShelters) return;
 
     shelters.forEach(s => {
-      // GeoJSON has coords [lon, lat]; Leaflet needs [lat, lon]
       const [lon, lat] = s.coords;
       const isFull = s.isFull;
 
@@ -122,75 +132,99 @@ export const DaragaMap: React.FC<Props> = ({
         fillOpacity: 0.9,
       });
 
-      marker.bindPopup(`
-        <div style="font-family: sans-serif; min-width: 200px;">
-          <div style="font-size: 11px; font-weight: bold; color: ${isFull ? '#dc2626' : '#059669'}; text-transform: uppercase;">
-            ${isFull ? 'SHELTER FULL' : 'AVAILABLE EVACUATION CENTER'}
-          </div>
-          <div style="font-weight: 800; font-size: 14px; margin: 2px 0;">${s.name}</div>
-          <div style="font-size: 12px; color: #475569;">${s.category} &bull; Tier ${s.candidateTier}</div>
-          <div style="font-size: 12px; margin-top: 4px; font-weight: 600;">
-            Occupancy: ${s.occupancy} / ${s.capacity}
-          </div>
-          <div style="font-size: 11px; color: #0284c7; margin-top: 2px;">
-            ${s.wheelchairAccessible ? 'Wheelchair Accessible Ramp Available' : 'Standard Center'}
-          </div>
-        </div>
-      `);
+      // Privacy: In user view, don't show manager internals, just clean public shelter stop info
+      const shelterLabel = isUserView
+        ? `<strong style="font-size:11px;">Safe Evacuation Center: ${s.name}</strong><br><span style="font-size:10px; color:${isFull ? '#ef4444' : '#10b981'}; font-weight:bold;">${isFull ? '🔴 AT CAPACITY (Rerouting)' : '🟢 OPEN (Accessible Ramps)'}</span>`
+        : `<strong style="font-size:11px;">${s.name}</strong><br><span style="font-size:10px; color:${isFull ? '#ef4444' : '#10b981'}">${isFull ? 'FULL' : 'OPEN'} (${s.occupancy}/${s.capacity})</span>`;
 
+      marker.bindTooltip(shelterLabel, { direction: 'top', offset: [0, -8], opacity: 0.95 });
       marker.on('click', () => setSelectedEntity({ type: 'shelter', data: s }));
       marker.addTo(layer);
     });
-  }, [shelters, showShelters]);
+  }, [shelters, showShelters, isUserView]);
 
-  // Update Residents Layer
+  // Update Stops & Residents Layer (ANONYMIZED FOR USER VIEW / LIVE DEMO)
   useEffect(() => {
-    const layer = residentLayerRef.current;
-    if (!layer) return;
-    layer.clearLayers();
+    const resLayer = residentLayerRef.current;
+    const stopsLayer = stopsLayerRef.current;
+    if (!resLayer || !stopsLayer) return;
 
-    if (!showResidents) return;
+    resLayer.clearLayers();
+    stopsLayer.clearLayers();
 
-    residents.forEach(r => {
-      const color =
-        r.status === 'delivered'
-          ? '#10b981'
-          : r.status === 'picked_up'
-          ? '#6366f1'
-          : r.status === 'assigned'
-          ? '#3b82f6'
-          : '#f59e0b';
+    if (!showStops) return;
 
-      const marker = L.circleMarker([r.lat, r.lon], {
-        radius: r.need === 'wheelchair' || r.need === 'stretcher' ? 10 : 8,
-        fillColor: color,
-        color: '#ffffff',
-        weight: 2.5,
-        opacity: 1,
-        fillOpacity: 0.95,
-      });
+    residents.forEach((r, idx) => {
+      const isDelivered = r.status === 'delivered';
+      const isPickedUp = r.status === 'picked_up';
+      const isAssigned = r.status === 'assigned';
 
-      marker.bindPopup(`
-        <div style="font-family: sans-serif; min-width: 210px;">
-          <div style="font-size: 10px; font-weight: 800; color: ${color}; text-transform: uppercase;">
-            RIDER: ${r.status.toUpperCase()} &bull; PRIORITY ${r.priorityScore}
-          </div>
-          <div style="font-weight: 800; font-size: 14px; margin: 2px 0;">${r.name}</div>
-          <div style="font-size: 12px; color: #334155;">${r.age}yo &bull; ${r.barangay}</div>
-          <div style="font-size: 12px; color: #b45309; font-weight: bold; margin-top: 2px;">
-            Need: ${r.need.toUpperCase()}
-          </div>
-          ${r.notes ? `<div style="font-size: 11px; color: #64748b; font-style: italic; margin-top: 2px;">"${r.notes}"</div>` : ''}
-          ${r.customMessage ? `<div style="font-size: 11px; color: #dc2626; font-weight: bold; margin-top: 3px;">${r.customMessage}</div>` : ''}
-        </div>
-      `);
+      const color = isDelivered
+        ? '#10b981'
+        : isPickedUp
+        ? '#6366f1'
+        : isAssigned
+        ? '#3b82f6'
+        : '#f59e0b';
 
-      marker.on('click', () => setSelectedEntity({ type: 'resident', data: r }));
-      marker.addTo(layer);
+      if (isUserView) {
+        // USER VIEW PRIVACY: ONLY show route stops and stop numbers, NO personal rider details or names!
+        const stopNumber = idx + 1;
+        const stopIcon = L.divIcon({
+          className: 'route-stop-icon',
+          html: `
+            <div style="display:flex; flex-direction:column; align-items:center; transform: translate(-50%, -50%);">
+              <div style="
+                background: ${isDelivered ? '#10b981' : '#2563eb'};
+                color: #ffffff;
+                padding: 3px 8px;
+                border-radius: 9999px;
+                font-weight: 900;
+                font-size: 10px;
+                white-space: nowrap;
+                border: 2px solid #ffffff;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+                display: flex;
+                align-items: center;
+                gap: 4px;
+              ">
+                <span>📍 Stop ${stopNumber}: ${r.barangay}</span>
+                <span style="font-size:8px; opacity:0.85;">(${isDelivered ? 'COMPLETED' : isPickedUp ? 'IN TRANSIT' : 'SCHEDULED'})</span>
+              </div>
+            </div>
+          `,
+          iconSize: [0, 0],
+        });
+
+        const stopMarker = L.marker([r.lat, r.lon], { icon: stopIcon });
+        stopMarker.bindTooltip(
+          `<strong style="font-size:11px;">Stop ${stopNumber}: Designated Pickup Point</strong><br><span style="font-size:10px; color:${color}; font-weight:bold;">${r.barangay} &bull; ${isDelivered ? 'Pick Up Complete' : 'Awaiting Vehicle'}</span>`,
+          { direction: 'bottom', offset: [0, 8], opacity: 0.95 }
+        );
+        stopMarker.addTo(stopsLayer);
+      } else {
+        // CREATOR / EOC VIEW: Show full manifest detail for dispatchers
+        const marker = L.circleMarker([r.lat, r.lon], {
+          radius: 9,
+          fillColor: color,
+          color: '#ffffff',
+          weight: 2.5,
+          opacity: 1,
+          fillOpacity: 0.95,
+        });
+
+        marker.bindTooltip(
+          `<strong style="font-size:11px;">${r.name}</strong><br><span style="font-size:10px; color:${color}; font-weight:bold;">${r.status.toUpperCase()} &bull; Need: ${r.need}</span>`,
+          { direction: 'bottom', offset: [0, 8], permanent: true, opacity: 0.9 }
+        );
+
+        marker.on('click', () => setSelectedEntity({ type: 'resident', data: r }));
+        marker.addTo(resLayer);
+      }
     });
-  }, [residents, showResidents]);
+  }, [residents, showStops, isUserView]);
 
-  // Update Vehicles & Route Polylines
+  // Update Vehicles, Route Polylines, Stops, and Live Moving Bus
   useEffect(() => {
     const vLayer = vehicleLayerRef.current;
     const rLayer = routesLayerRef.current;
@@ -198,235 +232,202 @@ export const DaragaMap: React.FC<Props> = ({
 
     vLayer.clearLayers();
     rLayer.clearLayers();
+    vehicleMarkersRef.current.clear();
 
     if (!showVehicles) return;
 
     vehicles.forEach(v => {
-      // GeoJSON has coords [lon, lat]; Leaflet needs [lat, lon]
-      const [lon, lat] = v.currentCoords;
-      const isFull = v.status === 'full';
+      // Determine position (use animated coords if this vehicle is currently simulating live motion)
+      let [lon, lat] = v.currentCoords;
+      if (animatedVehicleId === v.id && animatedCoords) {
+        [lon, lat] = animatedCoords;
+      }
 
-      // Vehicle Marker Icon
+      const isFull = v.status === 'full';
+      const isStopped = isVehicleStopped && (animatedVehicleId === v.id || v.id === 'VAN-02' || v.id === 'BUS-01');
+      const color = isFull ? '#ef4444' : isStopped ? '#f97316' : v.id === 'VAN-02' ? '#10b981' : '#f59e0b';
+
+      // Custom DivIcon with Permanent Label & VEHICLE STOPPED Indicator
       const busIcon = L.divIcon({
-        className: 'custom-bus-icon',
+        className: 'live-bus-marker',
         html: `
-          <div style="
-            background: ${isFull ? '#dc2626' : '#eab308'};
-            color: #000;
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 900;
-            font-size: 10px;
-            border: 2px solid #fff;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-          ">
-            ${v.id.substring(0, 4)}
+          <div style="display:flex; flex-direction:column; align-items:center; transform: translate(-50%, -50%);">
+            ${
+              isStopped
+                ? `
+                <div style="
+                  background: #ef4444;
+                  color: #fff;
+                  padding: 3px 8px;
+                  border-radius: 6px;
+                  font-weight: 900;
+                  font-size: 10px;
+                  margin-bottom: 2px;
+                  border: 2px solid #fff;
+                  box-shadow: 0 0 14px #ef4444;
+                  animation: pulse 1.2s infinite;
+                  display: flex;
+                  align-items: center;
+                  gap: 3px;
+                ">
+                  <span>🛑 NAKATIGIL / STOPPED</span>
+                </div>
+              `
+                : ''
+            }
+            <div style="
+              background: ${color};
+              color: #000;
+              padding: 4px 8px;
+              border-radius: 8px;
+              font-weight: 900;
+              font-size: 11px;
+              white-space: nowrap;
+              border: 2px solid #fff;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+              display: flex;
+              align-items: center;
+              gap: 4px;
+            ">
+              <span>🚌 ${v.id}</span>
+              <span style="font-size:9px; background:rgba(0,0,0,0.2); padding:1px 4px; border-radius:4px;">
+                ${isStopped ? 'BOARDING' : isFull ? 'FULL' : v.status === 'en_route' ? 'LIVE' : 'OK'}
+              </span>
+            </div>
+            <div style="
+              width: 0;
+              height: 0;
+              border-left: 6px solid transparent;
+              border-right: 6px solid transparent;
+              border-top: 6px solid ${color};
+            "></div>
           </div>
         `,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
+        iconSize: [0, 0],
       });
 
-      const marker = L.marker([lat, lon], { icon: busIcon });
-      marker.bindPopup(`
-        <div style="font-family: sans-serif; min-width: 220px;">
-          <div style="font-size: 11px; font-weight: 800; color: ${isFull ? '#dc2626' : '#b45309'}; text-transform: uppercase;">
-            ${v.name} [${v.status.toUpperCase()}]
-          </div>
-          <div style="font-size: 12px; color: #475569; margin: 2px 0;">Driver: ${v.driverName}</div>
-          <div style="font-size: 12px; font-weight: 700;">
-            Seats: ${v.seatsFree} / ${v.seatsTotal} &bull; Wheelchair: ${v.wheelchairFree} / ${v.wheelchairSpaces}
-          </div>
-          <div style="font-size: 11px; color: #0284c7; margin-top: 4px;">
-            Route Stops: ${v.routeStops.length} queued
-          </div>
-        </div>
-      `);
-
+      const marker = L.marker([lat, lon], { icon: busIcon, zIndexOffset: 1000 });
       marker.on('click', () => setSelectedEntity({ type: 'vehicle', data: v }));
       marker.addTo(vLayer);
+      vehicleMarkersRef.current.set(v.id, marker);
 
-      // Render Dijkstra Route Polyline: remember v.routePolyline is [[lon, lat], ...]
+      // Render actual visible route line on map (Shortest Path from Dijkstra over 28,465 Daraga nodes)
       if (v.routePolyline && v.routePolyline.length > 1) {
         const polylineCoords: [number, number][] = v.routePolyline.map(([pLon, pLat]) => [pLat, pLon]);
+
+        // Background glow line
+        L.polyline(polylineCoords, {
+          color: '#ffffff',
+          weight: 6,
+          opacity: 0.35,
+        }).addTo(rLayer);
+
+        // Core colored route line
         const polyline = L.polyline(polylineCoords, {
-          color: v.id === 'VAN-02' ? '#10b981' : '#eab308',
-          weight: 4.5,
-          opacity: 0.85,
-          dashArray: isFull ? '8, 8' : undefined,
+          color,
+          weight: 4,
+          opacity: 0.95,
+          dashArray: isFull ? '6, 6' : undefined,
         });
-        polyline.bindPopup(`Route Path for ${v.name}`);
+
+        polyline.bindTooltip(
+          `<strong>Active Route: ${v.name}</strong><br><span style="font-size:10px;">Dijkstra Shortest Path &bull; Daraga Road Graph</span>`,
+          { sticky: true }
+        );
         polyline.addTo(rLayer);
       }
     });
-  }, [vehicles, showVehicles]);
+  }, [vehicles, showVehicles, animatedVehicleId, animatedCoords, isVehicleStopped]);
 
-  // Update Medical Facilities & Transport Hubs
+  // Live Position Animation Effect (moves marker smoothly between frames)
   useEffect(() => {
-    const mLayer = medicalLayerRef.current;
-    const hLayer = hubsLayerRef.current;
-    if (!mLayer || !hLayer) return;
-
-    mLayer.clearLayers();
-    hLayer.clearLayers();
-
-    if (showMedical) {
-      medicalFacilities.forEach(m => {
-        const [lon, lat] = m.coords;
-        const marker = L.circleMarker([lat, lon], {
-          radius: 5,
-          fillColor: '#38bdf8',
-          color: '#ffffff',
-          weight: 1.5,
-          fillOpacity: 0.8,
-        });
-        marker.bindPopup(`<strong>${m.name}</strong><br><span style="font-size:11px; color:#64748b;">${m.category}</span>`);
-        marker.addTo(mLayer);
-      });
+    if (!animatedVehicleId || !animatedCoords) return;
+    const marker = vehicleMarkersRef.current.get(animatedVehicleId);
+    if (marker) {
+      marker.setLatLng([animatedCoords[1], animatedCoords[0]]);
     }
-
-    transportHubs.forEach(h => {
-      const [lon, lat] = h.coords;
-      const marker = L.circleMarker([lat, lon], {
-        radius: 6,
-        fillColor: '#f97316',
-        color: '#ffffff',
-        weight: 1.5,
-        fillOpacity: 0.9,
-      });
-      marker.bindPopup(`<strong>${h.name}</strong><br><span style="font-size:11px; color:#64748b;">Vehicle Depot</span>`);
-      marker.addTo(hLayer);
-    });
-  }, [medicalFacilities, transportHubs, showMedical]);
+  }, [animatedVehicleId, animatedCoords]);
 
   return (
-    <div className="relative w-full h-[600px] sm:h-[680px] rounded-2xl overflow-hidden border-2 border-slate-700 shadow-2xl bg-slate-900">
-      {/* Map Container */}
+    <div className="relative w-full h-[620px] rounded-3xl overflow-hidden border-2 border-slate-700 shadow-2xl bg-slate-900">
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Top Floating Controls */}
-      <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 p-2 rounded-xl shadow-xl">
-        <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-black uppercase text-amber-400">
-          <Layers className="w-4 h-4" />
-          <span>Layers</span>
+      {/* Floating Alert Badge when Vehicle is Physically Stopped */}
+      {isVehicleStopped && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-red-600 text-white px-5 py-2.5 rounded-2xl shadow-2xl border-2 border-white flex items-center gap-2.5 animate-bounce">
+          <AlertOctagon className="w-5 h-5 text-white animate-spin" />
+          <div className="text-xs sm:text-sm font-black tracking-wide">
+            {vehicleStopLabel || '🛑 VEHICLE STOPPED — Lowering Wheelchair Ramp & Boarding Passenger'}
+          </div>
         </div>
+      )}
 
-        <button
-          onClick={() => setShowShelters(!showShelters)}
-          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-            showShelters ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-500'
-          }`}
-        >
-          Shelters ({shelters.length})
-        </button>
+      {/* Layer Toggles Floating Bar */}
+      <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700 px-3 py-2 rounded-2xl shadow-xl">
+        <div className="flex items-center gap-1.5 text-xs font-black uppercase text-amber-400 mr-1">
+          <Layers className="w-4 h-4" />
+          <span>Map View</span>
+        </div>
 
         <button
           onClick={() => setShowVehicles(!showVehicles)}
-          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-            showVehicles ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-800 text-slate-500'
+          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            showVehicles ? 'bg-amber-500 text-slate-950 font-black shadow-md' : 'bg-slate-800 text-slate-400'
           }`}
         >
-          Buses &amp; Routes ({vehicles.length})
+          🚌 Buses &amp; Route Lines
         </button>
 
         <button
-          onClick={() => setShowResidents(!showResidents)}
-          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-            showResidents ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-slate-800 text-slate-500'
+          onClick={() => setShowStops(!showStops)}
+          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            showStops ? 'bg-blue-600 text-white font-bold shadow-md' : 'bg-slate-800 text-slate-400'
           }`}
         >
-          Riders ({residents.length})
+          📍 Route Stops ({residents.length})
         </button>
 
         <button
-          onClick={() => setShowMedical(!showMedical)}
-          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-            showMedical ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40' : 'bg-slate-800 text-slate-500'
+          onClick={() => setShowShelters(!showShelters)}
+          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            showShelters ? 'bg-emerald-600 text-white font-bold shadow-md' : 'bg-slate-800 text-slate-400'
           }`}
         >
-          Clinics ({medicalFacilities.length})
+          🏠 Shelters ({shelters.length})
         </button>
       </div>
 
-      {/* Bottom Floating Legend & Pin Tip */}
-      <div className="absolute bottom-4 left-4 right-4 sm:right-auto z-10 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 p-3 rounded-xl shadow-2xl text-xs space-y-2 max-w-md">
-        <div className="flex justify-between items-center text-slate-300 font-bold border-b border-slate-800 pb-1.5">
-          <span>Daraga Evacuation Map Legend</span>
-          <span className="text-[10px] text-amber-400 font-mono">Boundary Buffer Active</span>
+      {/* Legend & Help Card */}
+      <div className="absolute bottom-4 left-4 z-10 bg-slate-950/95 backdrop-blur-md border border-slate-800 p-3.5 rounded-2xl shadow-2xl text-xs space-y-2 max-w-sm">
+        <div className="flex justify-between items-center text-slate-300 font-extrabold border-b border-slate-800 pb-1.5">
+          <span>A.R.K &bull; Daraga Road Network Tracker</span>
+          <span className="text-[10px] text-amber-400 font-mono">Dijkstra Routing</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
+        <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300 font-semibold">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white shrink-0" />
-            <span>Open Evacuation Center</span>
+            <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-white shrink-0" />
+            <span>Open Evac Shelter</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-red-500 ring-2 ring-white shrink-0" />
-            <span>Shelter Full</span>
+            <span className="w-3.5 h-3.5 rounded-full bg-red-500 ring-2 ring-white shrink-0" />
+            <span>Shelter at Capacity</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center shrink-0">
-              BUS
-            </span>
-            <span>Accessible Rescue Transport</span>
+            <span className="w-4 h-1.5 rounded bg-amber-400 shrink-0" />
+            <span>Bus Active Route Line</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-blue-500 ring-2 ring-white shrink-0" />
-            <span>Rider Pickup Location</span>
+            <span className="w-3.5 h-3.5 rounded-full bg-blue-500 ring-2 ring-white shrink-0" />
+            <span>Designated Stop (Pickup)</span>
           </div>
         </div>
 
-        <p className="text-[10px] text-amber-300/80 pt-1 border-t border-slate-800 flex items-center gap-1">
-          <PlusCircle className="w-3 h-3 shrink-0" />
-          Click anywhere on map to drop a new emergency pickup pin for a resident!
-        </p>
+        <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-800 flex items-center justify-between">
+          <span className="text-amber-300 font-bold">Privacy Mode: ON</span>
+          <span>Individual rider details hidden</span>
+        </div>
       </div>
-
-      {/* Selected Entity Drawer */}
-      {selectedEntity && (
-        <div className="absolute top-4 right-4 z-10 w-72 bg-slate-900/95 backdrop-blur-md border border-slate-700 p-4 rounded-xl shadow-2xl text-xs space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="font-bold uppercase tracking-wider text-amber-400">
-              {selectedEntity.type.toUpperCase()} DETAILS
-            </span>
-            <button
-              onClick={() => setSelectedEntity(null)}
-              className="text-slate-400 hover:text-white font-bold px-1"
-            >
-              &times;
-            </button>
-          </div>
-          <h4 className="font-extrabold text-sm text-white">{selectedEntity.data.name}</h4>
-          {selectedEntity.type === 'resident' && (
-            <div className="space-y-1 text-slate-300">
-              <p>Status: <strong className="text-amber-400">{selectedEntity.data.status}</strong></p>
-              <p>Need: {selectedEntity.data.need}</p>
-              <p>Barangay: {selectedEntity.data.barangay}</p>
-              <p>Priority Score: {selectedEntity.data.priorityScore}</p>
-            </div>
-          )}
-          {selectedEntity.type === 'shelter' && (
-            <div className="space-y-1 text-slate-300">
-              <p>Category: {selectedEntity.data.category}</p>
-              <p>Occupancy: {selectedEntity.data.occupancy} / {selectedEntity.data.capacity}</p>
-              <p>Wheelchair: {selectedEntity.data.wheelchairAccessible ? 'Accessible' : 'Not Equipped'}</p>
-              <p>Status: {selectedEntity.data.isFull ? 'FULL' : 'OPEN'}</p>
-            </div>
-          )}
-          {selectedEntity.type === 'vehicle' && (
-            <div className="space-y-1 text-slate-300">
-              <p>Driver: {selectedEntity.data.driverName}</p>
-              <p>Status: {selectedEntity.data.status}</p>
-              <p>Seats Free: {selectedEntity.data.seatsFree} / {selectedEntity.data.seatsTotal}</p>
-              <p>Wheelchair Spaces: {selectedEntity.data.wheelchairFree} / {selectedEntity.data.wheelchairSpaces}</p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };

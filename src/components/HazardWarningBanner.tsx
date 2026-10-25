@@ -162,9 +162,9 @@ export const HazardWarningBanner: React.FC<Props> = ({
 
           <button
             onClick={onOpenLiveDemoModal}
-            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
+            className="text-xs font-black uppercase tracking-wider px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
           >
-            Run Live Demo
+            ▶ Launch Live Demo
           </button>
         </div>
       </div>

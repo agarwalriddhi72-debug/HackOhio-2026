@@ -3,8 +3,8 @@ export interface Resident {
   name: string;
   phone: string;
   age: number;
-  ageGroup: 'senior' | 'adult' | 'child';
-  need: 'none' | 'elderly' | 'wheelchair' | 'stretcher' | 'physical_help' | 'infant';
+  ageGroup: 'senior' | 'adult';
+  need: 'wheelchair' | 'cane_help' | 'stretcher' | 'elderly_general' | string;
   notes: string;
   barangay: string;
   lon: number;

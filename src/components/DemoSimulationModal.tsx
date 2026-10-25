@@ -134,7 +134,7 @@ export const DemoSimulationModal: React.FC<Props> = ({
             <div className="flex items-center gap-2">
               <Sparkles className="w-6 h-6 text-amber-400" />
               <h3 className="text-xl sm:text-2xl font-black text-white">
-                ROUTEY &bull; Live Evacuation Demo Lab
+                A.R.K &bull; Live Evacuation Demo Lab
               </h3>
             </div>
             <p className="text-xs sm:text-sm text-slate-300 mt-1">

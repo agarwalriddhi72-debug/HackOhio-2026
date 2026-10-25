@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Resident, Vehicle, Shelter } from '../types';
-import { UserCheck, Accessibility, HeartPulse, Baby, Clock, Phone, MapPin, AlertCircle, Volume2, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Accessibility, Volume2, CheckCircle2, AlertCircle, Phone, MapPin, Sparkles, User, RefreshCw, Clock, ShieldCheck, HeartHandshake } from 'lucide-react';
 
 interface Props {
   residents: Resident[];
@@ -17,19 +17,25 @@ interface Props {
     lat: number;
   }) => Promise<void>;
   highContrast: boolean;
+  activeRiderId?: string | null;
+  onSelectActiveRider?: (id: string | null) => void;
 }
 
-const DARAGA_BARANGAYS = [
-  { name: 'Barangay Tagas', lon: 123.6925, lat: 13.1382, note: 'Near Tagas Elementary & riverbank' },
-  { name: 'Barangay Kimantong', lon: 123.7051, lat: 13.1495, note: 'Central commercial & residential' },
-  { name: 'Barangay Bañag', lon: 123.7142, lat: 13.1530, note: 'Low-lying flood hazard zone' },
-  { name: 'Barangay Malabog', lon: 123.6738, lat: 13.1250, note: 'Mayon volcano lahar flow corridor' },
-  { name: 'Barangay Busay', lon: 123.6890, lat: 13.1620, note: 'Cagsawa ruins & slope area' },
-  { name: 'Barangay Ilawod', lon: 123.7020, lat: 13.1410, note: 'Near Daraga public market' },
-  { name: 'Barangay Binitayan', lon: 123.7180, lat: 13.1460, note: 'Near highway link & river' },
-  { name: 'Barangay Cullat', lon: 123.6650, lat: 13.1180, note: 'Agricultural lowlands' },
-  { name: 'Barangay Inarado', lon: 123.6580, lat: 13.1390, note: 'Mountain foot slope' },
-  { name: 'Barangay Sagpon', lon: 123.7080, lat: 13.1450, note: 'Near municipality hall' },
+const QUICK_BARANGAYS = [
+  { name: 'Barangay Bañag', lon: 123.7142, lat: 13.1530, desc: 'Low-lying riverbank / Tabing-ilog' },
+  { name: 'Barangay Tagas', lon: 123.6925, lat: 13.1382, desc: 'Tagas school & river / Mababang lugar' },
+  { name: 'Barangay Kimantong', lon: 123.7051, lat: 13.1495, desc: 'Daraga Town Center / Sentro ng Bayan' },
+  { name: 'Barangay Malabog', lon: 123.6738, lat: 13.1250, desc: 'Mayon lower slope / Paanan ng Bulkan' },
+  { name: 'Barangay Busay', lon: 123.6890, lat: 13.1620, desc: 'Cagsawa area / Malapit sa Cagsawa' },
+  { name: 'Barangay Ilawod', lon: 123.7020, lat: 13.1410, desc: 'Public Market / Pamilihang Bayan' },
+];
+
+const RANDOM_PERSONS = [
+  { name: 'Lola Remedios Alcantara', age: 81, phone: '0917-555-8921', need: 'cane_help', barangay: 'Barangay Tagas', notes: 'Needs hand support stepping up bus / Kailangan ng akay' },
+  { name: 'Tatay Rolando Santos', age: 72, phone: '0928-555-4312', need: 'wheelchair', barangay: 'Barangay Kimantong', notes: 'Wheelchair user, needs ramp / Naka-wheelchair' },
+  { name: 'Nanay Beatriz Magallanes', age: 86, phone: '0919-888-2341', need: 'wheelchair', barangay: 'Barangay Bañag', notes: 'Severe flood hazard area / Baha sa ilog' },
+  { name: 'Lolo Crisanto Pardo', age: 74, phone: '0949-555-1289', need: 'elderly_general', barangay: 'Barangay Malabog', notes: 'General elderly evacuee (60+) / Nakatatanda' },
+  { name: 'Lola Corazon Flores', age: 68, phone: '0905-555-7731', need: 'cane_help', barangay: 'Barangay Bañag', notes: 'Near river overflow / Tabing-ilog' },
 ];
 
 export const RiderInterface: React.FC<Props> = ({
@@ -38,113 +44,134 @@ export const RiderInterface: React.FC<Props> = ({
   shelters,
   onSubmitRequest,
   highContrast,
+  activeRiderId,
+  onSelectActiveRider,
 }) => {
+  // If activeRiderId is set, track that specific rider. If not, default to the user's latest request or null
+  const [localRiderId, setLocalRiderId] = useState<string | null>(activeRiderId || (residents.length > 0 ? residents[0].id : null));
+
+  // Form states
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [age, setAge] = useState<number>(72);
-  const [need, setNeed] = useState<Resident['need']>('elderly');
-  const [barangay, setBarangay] = useState(DARAGA_BARANGAYS[0].name);
-  const [notes, setNotes] = useState('');
+  const [age, setAge] = useState<number>(76);
+  const [need, setNeed] = useState<string>('wheelchair');
+  const [barangay, setBarangay] = useState('Barangay Bañag');
   const [submitting, setSubmitting] = useState(false);
-  const [currentRiderId, setCurrentRiderId] = useState<string>(residents[0]?.id || '');
-  const [message, setMessage] = useState<string | null>(null);
 
-  // Active rider to track
-  const activeRider = residents.find(r => r.id === currentRiderId) || residents[0];
-  const assignedVehicle = vehicles.find(v => v.id === activeRider?.assignedVehicleId);
-  const assignedShelter = shelters.find(s => s.id === activeRider?.assignedShelterId);
+  // The active rider viewed by this device
+  const currentRider = residents.find(r => r.id === (activeRiderId || localRiderId));
+  const assignedVehicle = vehicles.find(v => v.id === currentRider?.assignedVehicleId);
+  const assignedShelter = shelters.find(s => s.id === currentRider?.assignedShelterId);
+
+  const handleRandomPerson = () => {
+    const randomPick = RANDOM_PERSONS[Math.floor(Math.random() * RANDOM_PERSONS.length)];
+    setName(randomPick.name);
+    setPhone(randomPick.phone);
+    setAge(randomPick.age);
+    setNeed(randomPick.need);
+    setBarangay(randomPick.barangay);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
     setSubmitting(true);
-    setMessage(null);
-
-    const bgyObj = DARAGA_BARANGAYS.find(b => b.name === barangay) || DARAGA_BARANGAYS[0];
+    const bgyObj = QUICK_BARANGAYS.find(b => b.name === barangay) || QUICK_BARANGAYS[0];
 
     try {
       await onSubmitRequest({
         name,
-        phone,
-        age,
+        phone: phone || '0917-000-0000',
+        age: Number(age) || 75,
         need,
-        notes,
+        notes: `Age: ${age}yo &bull; Priority evacuation request`,
         barangay,
         lon: bgyObj.lon,
         lat: bgyObj.lat,
       });
 
-      setMessage('Evacuation assistance request received! Searching and routing nearest rescue vehicle...');
-      setName('');
-      setNotes('');
-      // focus tracking on newest request
+      // Target newly created resident (first in list after update)
       if (residents.length > 0) {
-        setCurrentRiderId(residents[0].id);
+        setLocalRiderId(residents[0].id);
+        if (onSelectActiveRider) onSelectActiveRider(residents[0].id);
       }
-    } catch {
-      setMessage('Failed to submit request. Please check connection or contact Daraga MDRRMO directly.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleReadStatusAloud = (text: string) => {
+  const handleReadStatusAloud = (englishText: string, tagalogText: string) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
+      // Speak in clear, comfortable pacing
+      const textToSpeak = `${englishText}. ${tagalogText}`;
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.rate = 0.85;
       window.speechSynthesis.speak(utterance);
     }
   };
 
+  // Status Presentation tailored for elderly riders with bilingual English + Tagalog
   const getStatusDisplay = () => {
-    if (!activeRider) return null;
+    if (!currentRider) return null;
 
-    if (activeRider.customMessage && activeRider.customMessage.includes('full')) {
+    if (currentRider.customMessage && currentRider.customMessage.toLowerCase().includes('full')) {
       return {
-        badge: 'BUS IS FULL - PLEASE WAIT',
-        color: 'bg-amber-600 border-amber-400 text-white',
-        text: 'The assigned bus reached maximum safe capacity. Your request has been kept at top priority in the waiting pool for the next available rescue vehicle. Please remain safely in place.',
-        icon: <AlertCircle className="w-8 h-8 text-amber-200 animate-pulse" />,
+        badgeEn: 'BUS IS FULL — PLEASE WAIT FOR NEXT BUS',
+        badgeTl: 'PUNO NA ANG BUS — MAGHINTAY PO SA KASUNOD',
+        bg: 'bg-amber-600 border-amber-400 text-white',
+        textEn: 'The assigned bus is currently at maximum capacity. You are placed at the very top of the queue for the next rescue vehicle. Please stay in a safe, elevated location.',
+        textTl: 'Puno na po ang unang bus. Naka-priority po kayo sa susunod na darating na sasakyan. Manatili po sa mataas at ligtas na lugar.',
+        icon: <AlertCircle className="w-12 h-12 text-amber-200 animate-pulse" />,
       };
     }
 
-    switch (activeRider.status) {
+    switch (currentRider.status) {
       case 'waiting':
         return {
-          badge: 'WAITING FOR DISPATCH',
-          color: 'bg-amber-700/80 border-amber-500 text-amber-100',
-          text: 'Request logged. System is optimizing routing to match an accessible vehicle with appropriate ramp or medical space.',
-          icon: <Clock className="w-8 h-8 text-amber-300 animate-spin" />,
+          badgeEn: 'SEARCHING FOR RESCUE BUS...',
+          badgeTl: 'NAGHAHANAP NG SUSUNDONG BUS...',
+          bg: 'bg-amber-700 border-amber-400 text-white',
+          textEn: 'Your emergency evacuation request is registered. The A.R.K system is routing the nearest accessible bus with ramp to your location.',
+          textTl: 'Nakatala na po ang inyong saklolo. Hinahanap po ng A.R.K ang pinakamalapit na sasakyang may rampa para sunduin kayo.',
+          icon: <Clock className="w-12 h-12 text-amber-300 animate-spin" />,
         };
       case 'assigned':
         return {
-          badge: 'VEHICLE EN ROUTE',
-          color: 'bg-blue-700 border-blue-400 text-white',
-          text: `Rescue vehicle ${assignedVehicle?.name || 'Bus'} has been dispatched to your pickup pin in ${activeRider.barangay}. Estimated arrival: ~6-10 minutes.`,
-          icon: <UserCheck className="w-8 h-8 text-blue-200" />,
+          badgeEn: 'BUS DISPATCHED & EN ROUTE',
+          badgeTl: 'PAPARATING NA ANG BUS SA INYO',
+          bg: 'bg-blue-600 border-blue-300 text-white',
+          textEn: `${assignedVehicle?.name || 'Rescue Bus'} is on its way to ${currentRider.barangay}. Estimated arrival: ~6-10 minutes. Please prepare your essential medicine and belongings.`,
+          textTl: `Paparating na po ang ${assignedVehicle?.name || 'Rescue Bus'} sa inyong barangay. Tinatayang 6-10 minuto. Ihanda na po ang inyong gamot at mahahalagang gamit.`,
+          icon: <Accessibility className="w-12 h-12 text-blue-200" />,
         };
       case 'picked_up':
         return {
-          badge: 'SAFELY ON BOARD',
-          color: 'bg-indigo-700 border-indigo-400 text-white',
-          text: `You are on board ${assignedVehicle?.name || 'evacuation transport'}. Driver is navigating safe high-ground roads to ${assignedShelter?.name || 'evacuation center'}.`,
-          icon: <Accessibility className="w-8 h-8 text-indigo-200" />,
+          badgeEn: 'SAFELY ON BOARD',
+          badgeTl: 'LIGTAS NA NAKASAKAY SA SASAKYAN',
+          bg: 'bg-indigo-700 border-indigo-400 text-white',
+          textEn: `You are safely aboard ${assignedVehicle?.name || 'the evacuation bus'}, traveling towards ${assignedShelter?.name || 'the evacuation center'}.`,
+          textTl: `Ligtas na po kayong nakasakay sa bus patungo sa ${assignedShelter?.name || 'evacuation center'}. Huwag mag-alala, ligtas ang ating ruta.`,
+          icon: <CheckCircle2 className="w-12 h-12 text-indigo-200" />,
         };
       case 'delivered':
         return {
-          badge: 'SAFELY EVACUATED',
-          color: 'bg-emerald-700 border-emerald-400 text-white',
-          text: `Successfully dropped off at ${assignedShelter?.name || 'Safe Evacuation Center'}. Registered with center management.`,
-          icon: <CheckCircle2 className="w-8 h-8 text-emerald-200" />,
+          badgeEn: 'SAFELY ARRIVED AT SHELTER',
+          badgeTl: 'LIGTAS NANG NAKARATING SA EVACUATION CENTER',
+          bg: 'bg-emerald-600 border-emerald-300 text-white',
+          textEn: `You have safely arrived at ${assignedShelter?.name || 'the evacuation center'}. Medical staff, water, and warm relief assistance are prepared for you.`,
+          textTl: `Nakarating na po kayo nang ligtas sa evacuation center. Handa na po ang mga nars, pagkain, at tulong para sa inyo.`,
+          icon: <CheckCircle2 className="w-12 h-12 text-emerald-200" />,
         };
       default:
         return {
-          badge: 'PENDING',
-          color: 'bg-slate-700 border-slate-500 text-slate-100',
-          text: 'Monitoring location and road status.',
-          icon: <Clock className="w-8 h-8" />,
+          badgeEn: 'REQUEST LOGGED',
+          badgeTl: 'NAITALA NA ANG KAHILINGAN',
+          bg: 'bg-slate-800 border-slate-600 text-white',
+          textEn: 'Request logged into A.R.K network.',
+          textTl: 'Naitala na sa sistema ng A.R.K.',
+          icon: <Clock className="w-12 h-12 text-slate-300" />,
         };
     }
   };
@@ -152,331 +179,332 @@ export const RiderInterface: React.FC<Props> = ({
   const statusInfo = getStatusDisplay();
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto p-4 sm:p-6">
-      {/* Title & Accessibility Banner */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-800/80 border border-slate-700 p-4 sm:p-5 rounded-2xl">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl sm:text-2xl font-black text-amber-400 tracking-tight">
-              ROUTEY &bull; Rider Assistance Portal
-            </h2>
-            <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-              Elderly &amp; PWD Focus
-            </span>
-          </div>
-          <p className="text-sm text-slate-300 mt-1">
-            Humiling ng libreng saklolo at accessible transport para sa mga nakatatanda at may kapansanan sa Daraga.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <span className="flex items-center gap-1 font-semibold text-amber-300">
-            <ShieldAlert className="w-4 h-4" /> 24/7 Daraga MDRRMO Hotline: (052) 480-1234
-          </span>
-        </div>
-      </div>
-
-      {/* Grid: Request Form + Live Status Monitor */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Request Form (7 cols) */}
-        <div className="lg:col-span-7 bg-slate-800/90 border border-slate-700 rounded-2xl p-5 sm:p-7 shadow-xl space-y-6">
-          <div className="border-b border-slate-700 pb-3">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Accessibility className="w-5 h-5 text-amber-400" />
-              Request Evacuation Transport (Humingi ng Saklolo)
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Enter rider details. Accessible vehicle (with wheelchair lift/ramp) will be routed to your pickup pin.
-            </p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Rider Full Name */}
+    <div className="max-w-3xl mx-auto space-y-6">
+      {/* If rider already submitted a request, show ONLY their own clean status card */}
+      {currentRider ? (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-2xl">
             <div>
-              <label htmlFor="rider-name" className="block text-sm font-bold text-slate-200 mb-1.5">
-                Full Name of Rider / Resident (Pangalan) *
-              </label>
-              <input
-                id="rider-name"
-                type="text"
-                required
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Lola Remedios Alcantara"
-                className="w-full text-base sm:text-lg px-4 py-3 rounded-xl bg-slate-900 border-2 border-slate-700 focus:border-amber-400 focus:outline-none text-white font-medium placeholder:text-slate-500 transition-colors"
-              />
+              <h2 className="text-xl sm:text-2xl font-black text-amber-400 flex items-center gap-2">
+                <HeartHandshake className="w-6 h-6 text-amber-400" />
+                <span>My Evacuation Status &bull; Aking Saklolo</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300">
+                Live updates for <strong className="text-white">{currentRider.name}</strong> &bull; {currentRider.barangay}
+              </p>
             </div>
-
-            {/* Phone & Age */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="rider-phone" className="block text-sm font-bold text-slate-200 mb-1.5">
-                  Contact Number (Telepono)
-                </label>
-                <div className="relative">
-                  <Phone className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
-                  <input
-                    id="rider-phone"
-                    type="tel"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    placeholder="0917-xxx-xxxx"
-                    className="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-900 border-2 border-slate-700 focus:border-amber-400 focus:outline-none text-white font-medium"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="rider-age" className="block text-sm font-bold text-slate-200 mb-1.5">
-                  Age (Edad): <span className="text-amber-400 font-extrabold">{age} yrs old</span>
-                </label>
-                <input
-                  id="rider-age"
-                  type="range"
-                  min="1"
-                  max="105"
-                  value={age}
-                  onChange={e => setAge(Number(e.target.value))}
-                  className="w-full accent-amber-500 h-2 bg-slate-700 rounded-lg cursor-pointer my-3"
-                />
-                <div className="flex justify-between text-xs text-slate-400 font-semibold">
-                  <span>Child (1-15)</span>
-                  <span className="text-amber-300 font-bold">Senior Citizen (60+)</span>
-                  <span>100+</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Accessibility & Special Needs Selector */}
-            <div>
-              <label className="block text-sm font-bold text-slate-200 mb-2">
-                Special Accessibility Needs (Pangangailangan) *
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {[
-                  {
-                    id: 'wheelchair',
-                    label: 'Wheelchair User',
-                    sub: 'Needs Ramp/Lift',
-                    icon: <Accessibility className="w-5 h-5" />,
-                  },
-                  {
-                    id: 'elderly',
-                    label: 'Elderly / Walking Cane',
-                    sub: 'Physical Step Help',
-                    icon: <UserCheck className="w-5 h-5" />,
-                  },
-                  {
-                    id: 'stretcher',
-                    label: 'Stretcher / Bed-bound',
-                    sub: 'Medical Gurney',
-                    icon: <HeartPulse className="w-5 h-5" />,
-                  },
-                  {
-                    id: 'physical_help',
-                    label: 'Physical Disability',
-                    sub: 'Limited Mobility',
-                    icon: <UserCheck className="w-5 h-5" />,
-                  },
-                  {
-                    id: 'infant',
-                    label: 'Infant / Mother',
-                    sub: 'Baby aboard',
-                    icon: <Baby className="w-5 h-5" />,
-                  },
-                  {
-                    id: 'none',
-                    label: 'General Evacuee',
-                    sub: 'Standard Seating',
-                    icon: <CheckCircle2 className="w-5 h-5" />,
-                  },
-                ].map(item => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setNeed(item.id as any)}
-                    className={`p-3 rounded-xl border-2 text-left flex flex-col gap-1 transition-all cursor-pointer ${
-                      need === item.id
-                        ? 'border-amber-400 bg-amber-500/20 text-white shadow-md ring-1 ring-amber-400'
-                        : 'border-slate-700 bg-slate-900/80 text-slate-300 hover:border-slate-500'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-amber-400">
-                      {item.icon}
-                      <span className="font-bold text-xs sm:text-sm">{item.label}</span>
-                    </div>
-                    <span className="text-[11px] text-slate-400">{item.sub}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Barangay Pickup Location */}
-            <div>
-              <label htmlFor="rider-barangay" className="block text-sm font-bold text-slate-200 mb-1.5">
-                Barangay &amp; Pickup Area in Daraga *
-              </label>
-              <div className="relative">
-                <MapPin className="w-5 h-5 absolute left-3.5 top-3.5 text-amber-400" />
-                <select
-                  id="rider-barangay"
-                  value={barangay}
-                  onChange={e => setBarangay(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-900 border-2 border-slate-700 focus:border-amber-400 focus:outline-none text-white font-medium text-base appearance-none cursor-pointer"
-                >
-                  {DARAGA_BARANGAYS.map(b => (
-                    <option key={b.name} value={b.name}>
-                      {b.name} — {b.note}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Landmark & Specific Notes */}
-            <div>
-              <label htmlFor="rider-notes" className="block text-sm font-bold text-slate-200 mb-1.5">
-                Landmark or Specific Conditions (e.g. Near Chapel, 2nd floor, rising water)
-              </label>
-              <textarea
-                id="rider-notes"
-                rows={2}
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Hal: Tapat ng barangay hall, may tubig na hanggang binti, kailangan ng tulong sa hagdan..."
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border-2 border-slate-700 focus:border-amber-400 focus:outline-none text-white text-sm placeholder:text-slate-500"
-              />
-            </div>
-
-            {/* Big High-Contrast Submit Button */}
             <button
-              type="submit"
-              disabled={submitting}
-              className={`w-full py-4 px-6 rounded-2xl font-black text-lg sm:text-xl tracking-wide uppercase transition-all shadow-xl flex items-center justify-center gap-3 cursor-pointer ${
-                submitting
-                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                  : highContrast
-                  ? 'bg-amber-400 text-black hover:bg-amber-300 ring-4 ring-amber-500/50'
-                  : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20 active:scale-[0.99]'
-              }`}
+              onClick={() => {
+                setLocalRiderId(null);
+                if (onSelectActiveRider) onSelectActiveRider(null);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 border border-slate-600 flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <AlertCircle className="w-6 h-6 shrink-0" />
-              {submitting ? 'PROCESSING ROUTE...' : 'SUBMIT EVACUATION REQUEST'}
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>New Request / Bagong Saklolo</span>
             </button>
-
-            {message && (
-              <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-xs sm:text-sm font-medium flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                <span>{message}</span>
-              </div>
-            )}
-          </form>
-        </div>
-
-        {/* Right Column: Live Rider Status Tracker (5 cols) */}
-        <div className="lg:col-span-5 space-y-5">
-          {/* Active Rider Selector */}
-          <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
-            <div className="flex justify-between items-center">
-              <label htmlFor="rider-select" className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Track Rider Status
-              </label>
-              <span className="text-xs text-amber-400 font-mono">
-                {residents.length} Active Requests
-              </span>
-            </div>
-
-            <select
-              id="rider-select"
-              value={currentRiderId}
-              onChange={e => setCurrentRiderId(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm font-medium focus:border-amber-400 focus:outline-none"
-            >
-              {residents.map(r => (
-                <option key={r.id} value={r.id}>
-                  {r.name} ({r.age}yo) &bull; {r.barangay} [{r.status.toUpperCase()}]
-                </option>
-              ))}
-            </select>
           </div>
 
-          {/* Large Accessible Status Card */}
-          {activeRider && statusInfo && (
-            <div className={`border-2 rounded-2xl p-5 sm:p-6 shadow-2xl transition-all space-y-5 ${statusInfo.color}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-2xl bg-black/30 backdrop-blur-sm border border-white/20">
+          {statusInfo && (
+            <div className={`rounded-3xl p-6 sm:p-8 border-4 shadow-2xl transition-all space-y-6 ${statusInfo.bg}`}>
+              {/* Badge & Big Status Header */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <div className="p-4 rounded-2xl bg-black/25 backdrop-blur-sm border border-white/20">
                     {statusInfo.icon}
                   </div>
                   <div>
-                    <span className="text-[11px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-black/40 text-white border border-white/20">
-                      {statusInfo.badge}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-1">
+                      <span className="text-xs font-black tracking-widest uppercase px-3 py-1 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
+                        {statusInfo.badgeEn}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-bold text-amber-200 mt-1 block">
+                      {statusInfo.badgeTl}
                     </span>
-                    <h4 className="text-xl sm:text-2xl font-black mt-2 leading-tight">
-                      {activeRider.name}
-                    </h4>
-                    <p className="text-xs text-white/80 font-medium">
-                      Age {activeRider.age} &bull; {activeRider.barangay} &bull; Priority Score: {activeRider.priorityScore}
+                    <h3 className="text-2xl sm:text-3xl font-black mt-2 leading-tight">
+                      {currentRider.name}
+                    </h3>
+                    <p className="text-sm font-semibold opacity-90 mt-0.5">
+                      {currentRider.barangay} &bull; Need: {currentRider.need === 'elderly_general' ? 'Senior Evacuee (60+ Nakatatanda)' : currentRider.need.toUpperCase()}
                     </p>
                   </div>
                 </div>
 
-                {/* Voice read-out button for visually impaired */}
+                {/* Voice Assist Button: Bilingual text-to-speech */}
                 <button
                   type="button"
-                  onClick={() => handleReadStatusAloud(`${activeRider.name}. Status: ${statusInfo.badge}. ${statusInfo.text}`)}
-                  title="Read status aloud (Voice Assist)"
-                  className="p-2.5 rounded-xl bg-black/30 hover:bg-black/50 text-white border border-white/20 transition-colors cursor-pointer"
+                  onClick={() => handleReadStatusAloud(statusInfo.textEn, statusInfo.textTl)}
+                  className="px-5 py-3.5 rounded-2xl bg-black/40 hover:bg-black/60 text-white border-2 border-white/40 flex items-center gap-2.5 font-black text-sm uppercase tracking-wider transition-all cursor-pointer shadow-lg active:scale-95"
+                  title="Pindutin para marinig nang malakas ang katayuan"
                 >
-                  <Volume2 className="w-5 h-5 text-amber-300" />
+                  <Volume2 className="w-7 h-7 text-amber-300 shrink-0" />
+                  <div className="text-left">
+                    <div>Listen Aloud</div>
+                    <div className="text-[10px] text-amber-200 font-medium">Pakinggan nang Malakas</div>
+                  </div>
                 </button>
               </div>
 
-              {/* Status Explanation Banner */}
-              <div className="p-4 rounded-xl bg-black/30 backdrop-blur-sm border border-white/20">
-                <p className="text-sm sm:text-base font-semibold leading-relaxed text-white">
-                  {statusInfo.text}
+              {/* Status Explanation (English + Tagalog) */}
+              <div className="p-5 rounded-2xl bg-black/30 backdrop-blur-sm border-2 border-white/20 space-y-3">
+                <p className="text-base sm:text-lg font-bold leading-relaxed text-white">
+                  {statusInfo.textEn}
                 </p>
+                <div className="pt-2 border-t border-white/10">
+                  <p className="text-sm sm:text-base font-semibold text-amber-200 leading-relaxed">
+                    🇵🇭 {statusInfo.textTl}
+                  </p>
+                </div>
               </div>
 
-              {/* Vehicle & Shelter Assignment Details */}
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-black/20 border border-white/10">
-                  <span className="text-white/70 block font-medium">Assigned Transport:</span>
-                  <span className="font-extrabold text-sm text-white mt-0.5 block">
-                    {assignedVehicle ? assignedVehicle.name : 'Searching nearest...'}
+              {/* Vehicle & Shelter Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm font-semibold">
+                <div className="p-4 rounded-2xl bg-black/25 border border-white/20 space-y-1">
+                  <span className="text-white/80 text-xs block uppercase font-bold">
+                    Rescue Bus &bull; Sasakyang Susundo:
+                  </span>
+                  <span className="text-lg font-black text-white block">
+                    {assignedVehicle ? assignedVehicle.name : 'Dispatching Nearest Bus...'}
                   </span>
                   {assignedVehicle && (
-                    <span className="text-[11px] text-amber-200 mt-0.5 block">
-                      Driver: {assignedVehicle.driverName}
+                    <span className="text-xs text-amber-200 block">
+                      Driver: {assignedVehicle.driverName} &bull; Type: Wheelchair Lift Van
                     </span>
                   )}
                 </div>
 
-                <div className="p-3 rounded-xl bg-black/20 border border-white/10">
-                  <span className="text-white/70 block font-medium">Destination Shelter:</span>
-                  <span className="font-extrabold text-sm text-white mt-0.5 block">
-                    {assignedShelter ? assignedShelter.name : 'Designated Shelter'}
+                <div className="p-4 rounded-2xl bg-black/25 border border-white/20 space-y-1">
+                  <span className="text-white/80 text-xs block uppercase font-bold">
+                    Evacuation Shelter &bull; Pupuntahang Sentro:
                   </span>
-                  {assignedShelter && (
-                    <span className="text-[11px] text-emerald-200 mt-0.5 block">
-                      {assignedShelter.wheelchairAccessible ? 'Wheelchair Accessible' : 'Standard Evac Center'}
-                    </span>
-                  )}
+                  <span className="text-lg font-black text-white block">
+                    {assignedShelter ? assignedShelter.name : 'Burgos Covered Court'}
+                  </span>
+                  <span className="text-xs text-emerald-200 block">
+                    Safe high-ground facility &bull; May rampa at pasilidad
+                  </span>
                 </div>
               </div>
 
-              {/* Special Note If Bus Was Marked Full */}
-              {activeRider.customMessage && (
-                <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-200 text-xs font-bold flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-300" />
-                  <span>{activeRider.customMessage}</span>
+              {/* Notice if Bus was Marked Full */}
+              {currentRider.customMessage && (
+                <div className="p-4 rounded-2xl bg-amber-500/30 border-2 border-amber-300 text-amber-100 text-sm font-bold flex items-center gap-3">
+                  <AlertCircle className="w-6 h-6 text-amber-300 shrink-0" />
+                  <div>
+                    <div>{currentRider.customMessage}</div>
+                    <div className="text-xs text-amber-200 mt-0.5">
+                      Puno na po ang naunang sasakyan. Parating na po ang kasunod na bus para sa inyo.
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
           )}
         </div>
-      </div>
+      ) : (
+        /* Form view: Extremely simple, high-contrast, giant buttons for elderly users */
+        <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+          <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black uppercase tracking-wider">
+                  Senior (60+) &bull; PWD Priority
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black uppercase">
+                  Libreng Serbisyo (Free)
+                </span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-amber-400 mt-2">
+                Request Free Rescue Bus &bull; Humiling ng Paglikas
+              </h2>
+              <p className="text-sm text-slate-300 mt-1">
+                Pindutin para magpasundo bago ang sakuna. Para sa mga nakatatanda (60+) at may kapansanan sa Daraga.
+              </p>
+            </div>
+
+            {/* Quick Random Person Button for Evaluator Testing */}
+            <button
+              type="button"
+              onClick={handleRandomPerson}
+              className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              title="Punan agad ng halimbawang impormasyon"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Fill Random Person / Punan Halimbawa</span>
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* 1. Name */}
+            <div>
+              <label htmlFor="rider-name-input" className="block text-base sm:text-lg font-extrabold text-white mb-1">
+                1. Full Name &bull; Buong Pangalan *
+              </label>
+              <p className="text-xs text-slate-400 mb-2">
+                Ipasok ang pangalan ng nakatatanda o taong may kapansanan.
+              </p>
+              <input
+                id="rider-name-input"
+                type="text"
+                required
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Halimbawa: Lola Remedios Alcantara"
+                className="w-full text-lg sm:text-xl px-5 py-4 rounded-2xl bg-slate-950 border-2 border-slate-600 focus:border-amber-400 focus:outline-none text-white font-bold placeholder:text-slate-500"
+              />
+            </div>
+
+            {/* 2. Age & Phone */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="rider-age-input" className="block text-base sm:text-lg font-extrabold text-white mb-1">
+                  2. Age &bull; Edad (60+ Priority) *
+                </label>
+                <p className="text-xs text-slate-400 mb-2">
+                  Inuuna ang mga may edad 60 pataas.
+                </p>
+                <input
+                  id="rider-age-input"
+                  type="number"
+                  min={1}
+                  max={120}
+                  required
+                  value={age}
+                  onChange={e => setAge(Number(e.target.value))}
+                  className="w-full text-lg px-5 py-4 rounded-2xl bg-slate-950 border-2 border-slate-600 focus:border-amber-400 focus:outline-none text-white font-bold"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="rider-phone-input" className="block text-base sm:text-lg font-extrabold text-white mb-1">
+                  Contact Phone &bull; Numero ng Telepono
+                </label>
+                <p className="text-xs text-slate-400 mb-2">
+                  Para matawagan ng drayber pagdating.
+                </p>
+                <div className="relative">
+                  <Phone className="w-6 h-6 absolute left-4 top-4 text-slate-400" />
+                  <input
+                    id="rider-phone-input"
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="0917-xxx-xxxx"
+                    className="w-full text-lg pl-14 pr-5 py-4 rounded-2xl bg-slate-950 border-2 border-slate-600 focus:border-amber-400 focus:outline-none text-white font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Special Accessibility Need */}
+            <div>
+              <label className="block text-base sm:text-lg font-extrabold text-white mb-1">
+                3. What kind of help do you need? &bull; Anong tulong ang kailangan? *
+              </label>
+              <p className="text-xs text-slate-400 mb-2">
+                Piliin ang naaangkop para makapagpadala ng tamang sasakyan na may rampa o tulong.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  {
+                    id: 'wheelchair',
+                    title: 'Wheelchair User',
+                    tagalog: 'Naka-wheelchair (Kailangan ng rampa o lift)',
+                    icon: '♿',
+                  },
+                  {
+                    id: 'cane_help',
+                    title: 'Walking Cane / Step Help',
+                    tagalog: 'Gumagamit ng baston (Kailangan ng akay sa hagdan)',
+                    icon: '🦯',
+                  },
+                  {
+                    id: 'stretcher',
+                    title: 'Bed-Bound / Stretcher',
+                    tagalog: 'Nakahiga sa higaan (Kailangan ng stretcher)',
+                    icon: '🛏️',
+                  },
+                  {
+                    id: 'elderly_general',
+                    title: 'General Evacuee (60+)',
+                    tagalog: 'Nakatatanda / Senior Citizen (Kayang lumakad)',
+                    icon: '👵',
+                  },
+                ].map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setNeed(item.id)}
+                    className={`p-4 rounded-2xl border-4 text-left transition-all cursor-pointer flex items-center gap-3 ${
+                      need === item.id
+                        ? 'border-amber-400 bg-amber-500/20 text-white shadow-xl ring-2 ring-amber-400'
+                        : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-3xl shrink-0">{item.icon}</span>
+                    <div>
+                      <div className="font-extrabold text-base sm:text-lg leading-tight">{item.title}</div>
+                      <div className="text-xs text-amber-300 font-semibold mt-0.5">{item.tagalog}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 4. Barangay Selection (Big Tap Buttons) */}
+            <div>
+              <label className="block text-base sm:text-lg font-extrabold text-white mb-1">
+                4. Where are you in Daraga? &bull; Saang barangay po susunduin? *
+              </label>
+              <p className="text-xs text-slate-400 mb-2">
+                Pindutin ang inyong barangay. Dito pupunta ang sasakyan.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {QUICK_BARANGAYS.map(b => (
+                  <button
+                    key={b.name}
+                    type="button"
+                    onClick={() => setBarangay(b.name)}
+                    className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                      barangay === b.name
+                        ? 'border-amber-400 bg-amber-500/20 text-white font-extrabold shadow-md'
+                        : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-sm">
+                      <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>{b.name}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{b.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Giant Bilingual Submit Button */}
+            <button
+              type="submit"
+              disabled={submitting}
+              className={`w-full py-5 px-8 rounded-3xl font-black text-xl sm:text-2xl tracking-wide uppercase shadow-2xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-2 ${
+                submitting
+                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                  : highContrast
+                  ? 'bg-amber-400 text-black hover:bg-amber-300 ring-4 ring-amber-500'
+                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 shadow-amber-500/30 active:scale-98'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Accessibility className="w-8 h-8 shrink-0" />
+                <span>{submitting ? 'DISPATCHING BUS...' : 'REQUEST EMERGENCY BUS'}</span>
+              </div>
+              <span className="text-xs sm:text-sm font-extrabold text-slate-900 tracking-normal normal-case">
+                &bull; Pindutin para humiling ng libreng sundo
+              </span>
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
