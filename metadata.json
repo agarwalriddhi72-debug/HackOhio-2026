@@ -1,0 +1,8 @@
+{
+  "name": "Daraga Evacuation & Disaster Response Navigator",
+  "description": "AI-assisted evacuation planning and disaster hazard early warning system for Daraga, Albay. Prioritizes older adults and persons with disabilities, optimizes accessible transport routes, manages shelter capacity, and monitors flood, lahar, typhoon, and landslide risks.",
+  "prompt": "AI-assisted evacuation planning system that prioritizes older adults and people with disabilities during disasters by recommending accessible transportation and optimized evacuation routes.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
