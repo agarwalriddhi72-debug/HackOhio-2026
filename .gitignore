@@ -1,4 +1,0 @@
-.venv/
-__pycache__/
-hourly_12h_weather_forecaster.pkl
-weather_rf_models.pkl
