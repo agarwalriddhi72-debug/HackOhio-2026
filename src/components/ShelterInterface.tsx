@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Shelter, Vehicle } from '../types';
-import { Home, Accessibility, Users, AlertOctagon, CheckCircle2, ShieldCheck, MapPin, Search } from 'lucide-react';
+import { Home, Accessibility, Users, AlertOctagon, CheckCircle2, Search, MapPin, Building, Bed, ArrowRight, UserPlus, UserMinus, ShieldCheck } from 'lucide-react';
 
 interface Props {
   shelters: Shelter[];
@@ -17,13 +17,14 @@ export const ShelterInterface: React.FC<Props> = ({
   onToggleWheelchair,
   highContrast,
 }) => {
-  // During demo walkthrough: default to managing ONE specific designated shelter (Burgos Covered Court)
-  const [viewMode, setViewMode] = useState<'single' | 'all'>('single');
+  // Assigned shelter id for this manager (defaults to 1: Burgos Covered Court)
+  const [selectedShelterId, setSelectedShelterId] = useState<number>(1);
+  const [activeTab, setActiveTab] = useState<'my_shelter' | 'all_shelters'>('my_shelter');
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [localOccupancyOffset, setLocalOccupancyOffset] = useState<number>(0);
 
-  // My designated shelter (Shelter #1: Burgos Covered Court)
-  const myShelter = shelters.find(s => s.id === 1) || shelters[0];
+  const myShelter = shelters.find(s => s.id === selectedShelterId) || shelters[0];
 
   const handleToggleFull = async (id: number) => {
     setActionLoading(true);
@@ -43,204 +44,405 @@ export const ShelterInterface: React.FC<Props> = ({
     }
   };
 
+  const handleQuickIntake = (amount: number) => {
+    setLocalOccupancyOffset(prev => {
+      const next = prev + amount;
+      const currentTotal = myShelter.occupancy + next;
+      if (currentTotal < 0) return -myShelter.occupancy;
+      if (currentTotal > myShelter.capacity) return myShelter.capacity - myShelter.occupancy;
+      return next;
+    });
+  };
+
   if (!myShelter) {
     return <div className="text-center p-8 text-slate-400">Loading shelter station...</div>;
   }
 
-  const occupancyPct = Math.min(100, Math.round((myShelter.occupancy / myShelter.capacity) * 100));
+  const currentOccupancy = Math.max(0, Math.min(myShelter.capacity, myShelter.occupancy + localOccupancyOffset));
+  const availableBeds = Math.max(0, myShelter.capacity - currentOccupancy);
+  const occupancyPct = Math.min(100, Math.round((currentOccupancy / myShelter.capacity) * 100));
   const incomingVehicles = vehicles.filter(v => v.destinationShelterId === myShelter.id);
 
+  const filteredShelters = shelters.filter(s =>
+    search.trim()
+      ? s.name.toLowerCase().includes(search.toLowerCase()) ||
+        s.category.toLowerCase().includes(search.toLowerCase())
+      : true
+  );
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* View Switcher: Single Shelter (Default) vs Creator/Admin Overview */}
-      <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded-2xl">
-        <span className="text-xs text-slate-400 font-semibold px-2">
-          Mode: <strong className="text-white">{viewMode === 'single' ? 'Shelter Manager Console (Single Station)' : 'Municipality Overview (All 162 Shelters)'}</strong>
-        </span>
-        <button
-          onClick={() => setViewMode(viewMode === 'single' ? 'all' : 'single')}
-          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-400 border border-slate-700 transition-colors cursor-pointer"
-        >
-          {viewMode === 'single' ? 'Switch to All Shelters (Admin View)' : 'Switch to My Shelter Only'}
-        </button>
+    <div className="max-w-4xl mx-auto space-y-5">
+      {/* 1. Header with Station Switcher & Clean 2-Tab Navigation */}
+      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Home className="w-5 h-5 text-emerald-400" />
+              <h2 className="text-lg sm:text-xl font-bold text-white">
+                Daraga Shelter Station Management
+              </h2>
+            </div>
+            <p className="text-xs text-slate-400">
+              Assigned Station: <strong className="text-emerald-300">{myShelter.name}</strong>
+            </p>
+          </div>
+
+          {/* Quick Shelter Selector for Managers stationed elsewhere */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 hidden sm:inline">Station:</span>
+            <select
+              value={selectedShelterId}
+              onChange={e => {
+                setSelectedShelterId(Number(e.target.value));
+                setLocalOccupancyOffset(0);
+              }}
+              className="text-xs px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-emerald-400 cursor-pointer"
+            >
+              {shelters.slice(0, 10).map(s => (
+                <option key={s.id} value={s.id}>
+                  #{s.id} - {s.name.slice(0, 28)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Isolation Tabs: "My Station" vs "Other Shelters" */}
+        <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800">
+          <button
+            type="button"
+            onClick={() => setActiveTab('my_shelter')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
+              activeTab === 'my_shelter'
+                ? 'bg-emerald-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Building className="w-3.5 h-3.5" />
+            <span>Aking Shelter ({myShelter.name.split(' ')[0]})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('all_shelters')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
+              activeTab === 'all_shelters'
+                ? 'bg-slate-800 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Iba Pang Shelters ({shelters.length})</span>
+          </button>
+        </div>
       </div>
 
-      {viewMode === 'single' ? (
-        /* Single Shelter Manager Console for Burgos Covered Court */
-        <div className="space-y-6">
-          {/* Main Shelter Card */}
-          <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-5">
-              <div className="flex items-center gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 flex items-center justify-center shrink-0">
-                  <Home className="w-8 h-8" />
+      {/* 2. TAB 1: MY SHELTER VIEW (ISOLATED & UNCLUTTERED) */}
+      {activeTab === 'my_shelter' && (
+        <div className="space-y-4">
+          {/* Main Station Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-xl sm:text-2xl font-black text-white">{myShelter.name}</h3>
+                  <span
+                    className={`text-xs font-bold px-2.5 py-0.5 rounded-full uppercase ${
+                      myShelter.isFull
+                        ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    }`}
+                  >
+                    {myShelter.isFull ? 'Shelter Full (Puno)' : 'Open & Receiving'}
+                  </span>
                 </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Designated High Ground · Station #{myShelter.id} · Type: {myShelter.category}
+                </p>
+              </div>
+
+              {/* Status Indicator */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-400">Ramp Access:</span>
+                <span
+                  className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
+                    myShelter.wheelchairAccessible
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {myShelter.wheelchairAccessible ? '♿ Ready' : 'Standard'}
+                </span>
+              </div>
+            </div>
+
+            {/* OCCUPANCY PROMINENCE SECTION */}
+            <div className="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-2xl sm:text-3xl font-black text-white">
-                      {myShelter.name}
-                    </h2>
-                    <span
-                      className={`text-xs font-black uppercase px-2.5 py-0.5 rounded-full ${
-                        myShelter.isFull
-                          ? 'bg-red-600 text-white animate-pulse'
-                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      }`}
-                    >
-                      {myShelter.isFull ? 'SHELTER FULL' : 'OPEN & ACCEPTING'}
+                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block mb-1">
+                    Kasalukuyang Occupancy (Current Beds Used)
+                  </span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl sm:text-4xl font-black text-white font-mono">
+                      {currentOccupancy}
+                    </span>
+                    <span className="text-base text-slate-500 font-semibold font-mono">
+                      / {myShelter.capacity} kabuuang kama (total beds)
                     </span>
                   </div>
-                  <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                    Tier 1 Official Evacuation Center &bull; Station ID: #{myShelter.id} &bull; Daraga Central
-                  </p>
+                </div>
+
+                <div className="text-left sm:text-right">
+                  <span className="text-xs font-black text-emerald-400 block">
+                    {availableBeds} BAKANTENG HIGAAN
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    {availableBeds > 0 ? 'Beds Available for Intake' : 'Facility at 100% Capacity'}
+                  </span>
                 </div>
               </div>
 
-              {/* Status Badge */}
-              <div className="text-right">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block">Current Capacity</span>
-                <span className="text-2xl font-black text-white font-mono">
-                  {myShelter.occupancy} <span className="text-sm text-slate-400">/ {myShelter.capacity}</span>
-                </span>
+              {/* Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs font-semibold text-slate-400">
+                  <span>Occupancy Level</span>
+                  <span className="font-mono text-amber-400 font-bold">{occupancyPct}% puno</span>
+                </div>
+                <div className="w-full bg-slate-900 h-3.5 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      myShelter.isFull || occupancyPct >= 100
+                        ? 'bg-red-500'
+                        : occupancyPct > 80
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${occupancyPct}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Accessible Slots Breakdown */}
+              <div className="grid grid-cols-2 gap-3 pt-1 text-xs">
+                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Wheelchair / PWD Beds</span>
+                  <span className="text-base font-bold text-white font-mono mt-0.5 block">
+                    {myShelter.wheelchairAccessible ? '18 Nakalaan (Ready)' : '0 (Limited)'}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Senior Priority Space</span>
+                  <span className="text-base font-bold text-white font-mono mt-0.5 block">
+                    Ground Floor Zone A
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Occupancy Progress Bar */}
-            <div className="space-y-2 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-slate-300 flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-blue-400" /> Space Utilization:
-                </span>
-                <span className="text-amber-400 font-mono text-sm">{occupancyPct}% Filled</span>
-              </div>
-              <div className="w-full bg-slate-800 h-3.5 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    myShelter.isFull ? 'bg-red-500' : occupancyPct > 80 ? 'bg-amber-500' : 'bg-emerald-500'
-                  }`}
-                  style={{ width: `${occupancyPct}%` }}
-                />
+            {/* Quick Intake Counter Buttons */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+              <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block">
+                Mabilisang Check-In / Intake ng mga Lumikas:
+              </span>
+              <div className="grid grid-cols-3 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleQuickIntake(1)}
+                  className="py-2.5 px-3 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/40 border border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>+1 Senior</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickIntake(5)}
+                  className="py-2.5 px-3 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/40 border border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>+5 Pamilya</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickIntake(-1)}
+                  className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                >
+                  <UserMinus className="w-3.5 h-3.5" />
+                  <span>-1 Labas</span>
+                </button>
               </div>
             </div>
 
-            {/* CRITICAL FEATURE: "SHELTER FULL" BUTTON */}
-            <div className="p-5 rounded-2xl bg-slate-950 border-2 border-slate-800 space-y-3">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            {/* Station Controls: Toggle Full & Toggle Ramp */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
                 <div>
-                  <h4 className="text-base font-bold text-white flex items-center gap-2">
-                    <AlertOctagon className="w-5 h-5 text-red-400" />
-                    Shelter Full Intake Control
-                  </h4>
-                  <p className="text-xs text-slate-400">
-                    When marked full, this shelter is immediately removed from available drop-offs. Active drivers are automatically rerouted to the nearest alternate shelter with capacity.
-                  </p>
+                  <span className="text-xs font-bold text-white block">Kapasidad ng Shelter</span>
+                  <span className="text-[11px] text-slate-400 block mt-0.5">
+                    {myShelter.isFull ? 'Nakatala bilang PUNO' : 'Bukas at tumatanggap'}
+                  </span>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => handleToggleFull(myShelter.id)}
                   disabled={actionLoading}
-                  className={`w-full sm:w-auto px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xl ${
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer shadow ${
                     myShelter.isFull
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                      : highContrast
-                      ? 'bg-red-600 hover:bg-red-500 text-white ring-4 ring-red-500'
-                      : 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/30 active:scale-95'
+                      : 'bg-red-600 hover:bg-red-500 text-white'
                   }`}
                 >
-                  <AlertOctagon className="w-5 h-5" />
-                  <span>{myShelter.isFull ? 'RE-OPEN SHELTER' : 'MARK SHELTER FULL'}</span>
+                  {myShelter.isFull ? 'Buksan Muli' : 'I-mark Puno'}
                 </button>
               </div>
-            </div>
 
-            {/* Wheelchair Restriction Toggle */}
-            <div className="p-5 rounded-2xl bg-slate-950 border-2 border-slate-800 space-y-3">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
                 <div>
-                  <h4 className="text-base font-bold text-white flex items-center gap-2">
-                    <Accessibility className="w-5 h-5 text-amber-400" />
-                    Wheelchair &amp; Accessibility Restriction
-                  </h4>
-                  <p className="text-xs text-slate-400">
-                    Toggle if access ramps become flooded, damaged, or fully occupied.
-                  </p>
+                  <span className="text-xs font-bold text-white block">Wheelchair Ramp</span>
+                  <span className="text-[11px] text-slate-400 block mt-0.5">
+                    {myShelter.wheelchairAccessible ? 'Ramp operational' : 'Limited ramp access'}
+                  </span>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => handleToggleWheelchair(myShelter.id)}
                   disabled={actionLoading}
-                  className={`w-full sm:w-auto px-5 py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer shadow ${
                     myShelter.wheelchairAccessible
-                      ? 'bg-slate-800 text-red-300 border border-red-500/50 hover:bg-red-950/40'
-                      : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                   }`}
                 >
-                  <Accessibility className="w-4 h-4" />
-                  <span>{myShelter.wheelchairAccessible ? 'Set: Cannot Accommodate Wheelchairs' : 'Enable Wheelchair Accommodation'}</span>
+                  {myShelter.wheelchairAccessible ? 'I-disable' : 'I-enable Ramp'}
                 </button>
               </div>
             </div>
+          </div>
 
-            {/* Incoming Vehicle Convoys */}
-            <div className="border-t border-slate-800 pt-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                Approaching Evacuation Convoys ({incomingVehicles.length})
-              </h4>
-              {incomingVehicles.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No vehicles currently designated to this drop-off point.</p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {incomingVehicles.map(v => (
-                    <div key={v.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex justify-between items-center">
-                      <div>
-                        <span className="font-bold text-white block">{v.name}</span>
-                        <span className="text-[11px] text-slate-400">Driver: {v.driverName}</span>
+          {/* Incoming Evacuation Shuttles Heading to THIS Shelter */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3 shadow">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <div>
+                <h4 className="text-sm sm:text-base font-bold text-white">
+                  Paparating na mga Rescue Bus (Incoming Shuttles)
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Mga sasakyang patungo sa {myShelter.name}
+                </p>
+              </div>
+              <span className="text-xs text-emerald-400 font-mono font-bold">
+                {incomingVehicles.length} Shuttles Active
+              </span>
+            </div>
+
+            {incomingVehicles.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-500">
+                Walang sasakyang kasalukuyang nakatakda patungo sa shelter na ito.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {incomingVehicles.map(v => (
+                  <div
+                    key={v.id}
+                    className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-white">{v.name}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">
+                          {v.id}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                        {v.routeStops.length} STOPS
+                      <span className="text-slate-400 block mt-0.5">
+                        Driver: Kuya Ramon · Nakasakay: {Math.max(1, v.seatsTotal - v.seatsFree)} lolo/lola
                       </span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    <div className="text-right">
+                      <span className="font-bold text-amber-400 block">Arriving ~6-8 min</span>
+                      <span className="text-[10px] text-slate-400">Wheelchair ramp deployed</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      ) : (
-        /* Admin All Shelters Overview */
-        <div className="space-y-4">
-          <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl">
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search all 162 Daraga shelters..."
-              className="w-full px-4 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white"
-            />
+      )}
+
+      {/* 3. TAB 2: OTHER DARAGA SHELTERS (NETWORK VIEW) */}
+      {activeTab === 'all_shelters' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-base font-bold text-white">Iba Pang Evacuation Centers sa Daraga</h3>
+              <p className="text-xs text-slate-400">
+                Network view para sa koordinasyon ng overflow at paglipat ng mga lilikas
+              </p>
+            </div>
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Maghanap ng shelter o barangay..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full sm:w-64 text-xs pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[600px] overflow-y-auto">
-            {shelters
-              .filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
-              .map(s => (
-                <div key={s.id} className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-xs space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-white text-sm">{s.name}</span>
-                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${s.isFull ? 'bg-red-600 text-white' : 'bg-emerald-600/30 text-emerald-300'}`}>
-                      {s.isFull ? 'FULL' : 'OPEN'}
+          <div className="divide-y divide-slate-800 max-h-[500px] overflow-y-auto pr-1">
+            {filteredShelters.map(s => {
+              const isSelected = s.id === selectedShelterId;
+              const pct = Math.min(100, Math.round((s.occupancy / s.capacity) * 100));
+              return (
+                <div
+                  key={s.id}
+                  className={`py-3.5 px-3 rounded-xl transition-colors flex items-center justify-between text-xs gap-3 ${
+                    isSelected ? 'bg-emerald-950/20 border border-emerald-500/30' : 'hover:bg-slate-950/50'
+                  }`}
+                >
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white">{s.name}</span>
+                      {isSelected && (
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                          Aking Station
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-slate-400 text-[11px] block">
+                      {s.category} · Kapasidad: <strong className="text-slate-300">{s.occupancy}/{s.capacity}</strong> ({pct}% puno) · {s.wheelchairAccessible ? '♿ PWD Ramp' : 'Standard'}
                     </span>
                   </div>
-                  <div className="text-slate-400">Occupancy: {s.occupancy} / {s.capacity}</div>
-                  <button
-                    onClick={() => handleToggleFull(s.id)}
-                    className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold"
-                  >
-                    {s.isFull ? 'Re-open' : 'Mark Full'}
-                  </button>
+
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <span
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                        s.isFull
+                          ? 'bg-red-500/20 text-red-300'
+                          : 'bg-emerald-500/20 text-emerald-300'
+                      }`}
+                    >
+                      {s.isFull ? 'Puno' : 'Bukas'}
+                    </span>
+
+                    {!isSelected && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedShelterId(s.id);
+                          setActiveTab('my_shelter');
+                          setLocalOccupancyOffset(0);
+                        }}
+                        className="text-[11px] px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
+                      >
+                        Piliin Ito
+                      </button>
+                    )}
+                  </div>
                 </div>
-              ))}
+              );
+            })}
           </div>
         </div>
       )}

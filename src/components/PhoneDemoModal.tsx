@@ -30,6 +30,7 @@ interface Props {
   onSelectRole: (role: 'rider' | 'driver' | 'shelter' | 'map' | 'simulator') => void;
   currentRole: string;
   onTriggerTestAlert?: () => void;
+  onSwitchToPhoneApp?: (role?: 'rider' | 'driver' | 'shelter' | 'map') => void;
 }
 
 // Active live development server URL
@@ -41,6 +42,7 @@ export const PhoneDemoModal: React.FC<Props> = ({
   onSelectRole,
   currentRole,
   onTriggerTestAlert,
+  onSwitchToPhoneApp,
 }) => {
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
   const [selectedPhoneTab, setSelectedPhoneTab] = useState<'rider' | 'driver' | 'shelter' | 'map'>('rider');
@@ -50,18 +52,18 @@ export const PhoneDemoModal: React.FC<Props> = ({
   const [sendingTestAlert, setSendingTestAlert] = useState(false);
   const [showSafariHelp, setShowSafariHelp] = useState(false);
 
-  // Compute active base URL: ALWAYS prioritize active browser origin, fallback to verified LIVE_APP_URL
+  // Compute active base URL: ALWAYS prioritize active browser origin so links and QR codes work anywhere
   const getActiveBaseUrl = (): string => {
     if (customBaseUrl.trim()) {
       return customBaseUrl.trim().replace(/\/+$/, '');
     }
     if (typeof window !== 'undefined' && window.location && window.location.origin) {
       const origin = window.location.origin;
-      if (origin && origin !== 'null' && !origin.includes('localhost') && origin.startsWith('http')) {
+      if (origin && origin !== 'null' && origin.startsWith('http')) {
         return origin;
       }
     }
-    return LIVE_APP_URL;
+    return typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '';
   };
 
   const baseUrl = getActiveBaseUrl();
@@ -71,9 +73,9 @@ export const PhoneDemoModal: React.FC<Props> = ({
       id: 'rider' as const,
       phoneLabel: 'Phone 1',
       title: 'Rider View',
-      roleQuery: '?role=rider',
-      roleHash: '#role=rider',
-      description: 'Lola Remedios (Senior 60+ / Wheelchair evacuee interface with Tagalog audio assist)',
+      roleQuery: '?mode=phone&role=rider',
+      roleHash: '#mode=phone&role=rider',
+      description: 'Lola Remedios (Senior 60+ / Wheelchair evacuee mobile interface with Tagalog audio assist)',
       icon: <Users className="w-5 h-5 text-amber-400" />,
       color: 'amber',
     },
@@ -81,8 +83,8 @@ export const PhoneDemoModal: React.FC<Props> = ({
       id: 'driver' as const,
       phoneLabel: 'Phone 2',
       title: 'Driver Console',
-      roleQuery: '?role=driver',
-      roleHash: '#role=driver',
+      roleQuery: '?mode=phone&role=driver',
+      roleHash: '#mode=phone&role=driver',
       description: 'BUS-01 Console (Kuya Ramon) with shortest path route, stop checklist & Bus Full trigger',
       icon: <Truck className="w-5 h-5 text-blue-400" />,
       color: 'blue',
@@ -91,8 +93,8 @@ export const PhoneDemoModal: React.FC<Props> = ({
       id: 'shelter' as const,
       phoneLabel: 'Phone 3',
       title: 'Shelter Station',
-      roleQuery: '?role=shelter',
-      roleHash: '#role=shelter',
+      roleQuery: '?mode=phone&role=shelter',
+      roleHash: '#mode=phone&role=shelter',
       description: 'Burgos Covered Court station capacity manager with live occupancy & Shelter Full trigger',
       icon: <Home className="w-5 h-5 text-emerald-400" />,
       color: 'emerald',
@@ -101,8 +103,8 @@ export const PhoneDemoModal: React.FC<Props> = ({
       id: 'map' as const,
       phoneLabel: 'Map View',
       title: 'Daraga Map',
-      roleQuery: '?role=map',
-      roleHash: '#role=map',
+      roleQuery: '?mode=phone&role=map',
+      roleHash: '#mode=phone&role=map',
       description: 'Municipality-wide road graph with real-time moving buses, routes, and shelter statuses',
       icon: <MapIcon className="w-5 h-5 text-purple-400" />,
       color: 'purple',
@@ -366,6 +368,20 @@ export const PhoneDemoModal: React.FC<Props> = ({
               >
                 <span>Switch Screen &rarr;</span>
               </button>
+
+              {/* Launch Phone-Specific View */}
+              {onSwitchToPhoneApp && (
+                <button
+                  onClick={() => {
+                    onSwitchToPhoneApp(activeConfig.id);
+                    onClose();
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
+                >
+                  <Smartphone className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>📱 Preview as Phone App</span>
+                </button>
+              )}
             </div>
 
             {/* TEST NOTIFICATION TRIGGER */}

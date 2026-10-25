@@ -63,31 +63,29 @@ export const TriplePhoneSimulator: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       {/* SIMULATOR TOP BANNER */}
-      <div className="bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border-2 border-amber-500/60 rounded-3xl p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="space-y-1.5 text-center md:text-left">
-          <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start">
-            <span className="px-3 py-1 rounded-full bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md">
-              <Layers className="w-4 h-4" /> 3-Phone Live Synchronized Simulator
-            </span>
-            <span className="text-xs text-amber-300 font-bold bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-full">
-              Real-Time State Mesh
-            </span>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
+            <Layers className="w-4 h-4" />
+            <span>3-Phone Live Synchronized Simulator</span>
+            <span className="text-slate-600">·</span>
+            <span className="text-slate-400">Real-Time State Mesh</span>
           </div>
-          <h2 className="text-xl sm:text-2xl font-black text-white">
+          <h2 className="text-lg sm:text-xl font-bold text-white">
             A.R.K Tri-Interface Demonstration
           </h2>
-          <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-            All 3 screens below run simultaneously on the <strong>same live dispatch state</strong>. Requesting a pickup on Phone 1 updates the driver&apos;s route on Phone 2, and tapping &ldquo;Bus Full&rdquo; on Phone 2 notifies Lola on Phone 1!
+          <p className="text-xs text-slate-400 max-w-2xl">
+            All 3 screens below run simultaneously on the same live dispatch state. Actions in one role (e.g., rider request, driver stop advance, shelter capacity toggle) sync in real-time across the system.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0 justify-center">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={onOpenPhoneModal}
-            className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95"
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-semibold text-xs flex items-center gap-2 transition-colors cursor-pointer"
           >
             <QrCode className="w-4 h-4" />
-            <span>Setup Physical Phones</span>
+            <span>Physical Phone QR</span>
           </button>
         </div>
       </div>

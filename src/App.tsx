@@ -10,6 +10,7 @@ import { LiveDemoController } from './components/LiveDemoController';
 import { NotificationCenter, AppNotification, playChime, triggerVibration, triggerSystemNotification, speakDisasterAlert } from './components/NotificationCenter';
 import { PhoneDemoModal } from './components/PhoneDemoModal';
 import { TriplePhoneSimulator } from './components/TriplePhoneSimulator';
+import { PhoneSpecificApp } from './components/PhoneSpecificApp';
 import {
   Shield,
   Users,
@@ -28,8 +29,18 @@ import {
 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  // Top-level mode toggle: "User View" vs "Creator View"
-  const [appMode, setAppMode] = useState<'user' | 'creator'>('user');
+  // Top-level mode toggle: "User View" vs "Creator View" vs "Phone App"
+  // Default to 'phone' as requested ("just give me the phone version for now")
+  const [appMode, setAppMode] = useState<'user' | 'creator' | 'phone'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get('mode');
+      if (mode === 'user' || mode === 'creator' || mode === 'phone') {
+        return mode;
+      }
+    }
+    return 'user'; // Desktop is the default view
+  });
 
   // Sub-tabs in User View: Rider, Driver, Shelter, Map, Simulator
   const [userTab, setUserTab] = useState<'rider' | 'driver' | 'shelter' | 'map' | 'simulator'>('rider');
@@ -119,10 +130,19 @@ export const App: React.FC = () => {
 
     seenNotifIdsRef.current.add(newNotif.id);
     setNotifications(prev => [newNotif, ...prev.slice(0, 25)]);
-    setActiveToast(newNotif);
-    playChime(notif.type === 'hazard_alert' ? 'alert' : notif.type === 'bus_full' ? 'alert' : 'info');
-    triggerVibration(notif.type === 'hazard_alert' ? [400, 200, 400, 200, 600] : [200, 100, 200]);
-    triggerSystemNotification(notif.title, notif.message);
+
+    // Only show intrusive floating toast for critical emergency actions, suppressing notification fatigue
+    const isCritical =
+      notif.type === 'hazard_alert' ||
+      notif.type === 'bus_full' ||
+      notif.type === 'driver_assigned';
+
+    if (isCritical) {
+      setActiveToast(newNotif);
+      playChime(notif.type === 'hazard_alert' ? 'alert' : 'info');
+      triggerVibration(notif.type === 'hazard_alert' ? [400, 200, 400, 200, 600] : [150, 80, 150]);
+      triggerSystemNotification(notif.title, notif.message);
+    }
 
     // Sync to server so any other connected phone also receives this notification!
     fetch('/api/notifications', {
@@ -131,10 +151,10 @@ export const App: React.FC = () => {
       body: JSON.stringify(notif),
     }).catch(() => {});
 
-    // Auto-dismiss floating toast after 7 seconds
+    // Auto-dismiss floating toast after 4 seconds (reduced from 7s to prevent clutter)
     setTimeout(() => {
       setActiveToast(current => (current?.id === newNotif.id ? null : current));
-    }, 7000);
+    }, 4000);
   }, []);
 
   // Parse URL search parameters and hash on mount (e.g. ?role=driver, ?role=rider, ?role=shelter, #rider) for 3-Phone Live Demo
@@ -144,20 +164,36 @@ export const App: React.FC = () => {
     const parseUrlRole = () => {
       const searchParams = new URLSearchParams(window.location.search);
       let role = searchParams.get('role') || searchParams.get('view');
+      const mode = searchParams.get('mode') || searchParams.get('device') || searchParams.get('app');
+
+      if (mode === 'phone' || mode === 'mobile') {
+        setAppMode('phone');
+      } else if (mode === 'creator') {
+        setAppMode('creator');
+      } else if (mode === 'user' || mode === 'desktop') {
+        setAppMode('user');
+      }
 
       if (!role && window.location.hash) {
         const hash = window.location.hash.replace('#', '').trim().toLowerCase();
         if (hash.includes('=')) {
           const hashParams = new URLSearchParams(hash);
           role = hashParams.get('role') || hashParams.get('view');
-        } else if (['rider', 'driver', 'shelter', 'map', 'creator', 'simulator', 'phones'].includes(hash)) {
-          role = hash === 'phones' ? 'simulator' : hash;
+          const hashMode = hashParams.get('mode') || hashParams.get('device');
+          if (hashMode === 'phone' || hashMode === 'mobile') {
+            setAppMode('phone');
+          }
+        } else if (['rider', 'driver', 'shelter', 'map', 'creator', 'simulator', 'phones', 'phone'].includes(hash)) {
+          if (hash === 'phone') {
+            setAppMode('phone');
+          } else {
+            role = hash === 'phones' ? 'simulator' : hash;
+          }
         }
       }
 
       if (['rider', 'driver', 'shelter', 'map', 'simulator', 'phones'].includes(role || '')) {
         setUserTab((role === 'phones' ? 'simulator' : role) as any);
-        setAppMode('user');
       } else if (role === 'creator') {
         setAppMode('creator');
       }
@@ -207,11 +243,11 @@ export const App: React.FC = () => {
           }
 
           if (latestNewNotif) {
-            const shouldAlert = !isFirstLoadRef.current || latestNewNotif.type === 'hazard_alert';
-            if (shouldAlert) {
+            // Only interrupt user with audio / toast if it is a genuine new hazard alert
+            if (!isFirstLoadRef.current && latestNewNotif.type === 'hazard_alert') {
               setActiveToast(latestNewNotif);
-              playChime(latestNewNotif.type === 'hazard_alert' ? 'alert' : 'info');
-              triggerVibration(latestNewNotif.type === 'hazard_alert' ? [400, 200, 400, 200, 600] : [200, 100, 200]);
+              playChime('alert');
+              triggerVibration([400, 200, 400, 200, 600]);
               triggerSystemNotification(latestNewNotif.title, latestNewNotif.message);
             }
           }
@@ -501,75 +537,113 @@ export const App: React.FC = () => {
     );
   }
 
+  // DEDICATED PHONE SPECIFIC VERSION
+  if (appMode === 'phone') {
+    return (
+      <div className={highContrast ? 'high-contrast-mode' : ''}>
+        <PhoneSpecificApp
+          residents={residents}
+          vehicles={vehicles}
+          shelters={shelters}
+          weather={weatherState}
+          scenarios={scenarios}
+          notifications={notifications}
+          onSubmitRiderRequest={handleSubmitRiderRequest}
+          onMarkBusFull={handleMarkBusFull}
+          onAdvanceStop={handleAdvanceStop}
+          onToggleShelterFull={handleToggleShelterFull}
+          onToggleWheelchair={handleToggleWheelchair}
+          onRefreshData={fetchData}
+          onDispatchNotification={dispatchNotification}
+          activeRiderId={activeRiderId}
+          onSelectActiveRider={setActiveRiderId}
+          highContrast={highContrast}
+          onToggleHighContrast={() => setHighContrast(!highContrast)}
+          onSwitchToDesktop={() => setAppMode('user')}
+          onSwitchToCreator={() => setAppMode('creator')}
+          initialRole={userTab as any}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={`min-h-screen flex flex-col bg-slate-950 text-slate-100 ${
         highContrast ? 'high-contrast-mode' : ''
       } ${largeText ? 'text-lg' : 'text-base'}`}
     >
-      {/* 1. TOP HEADER & ACCESSIBILITY CONTROLS */}
-      <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 shadow-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      {/* 1. TOP HEADER & PRIMARY NAVIGATION */}
+      <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-4">
           {/* Logo & Branding: A.R.K */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md ring-2 ring-amber-400/50">
-              <Shield className="w-6 h-6 stroke-[2.5]" />
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shadow-md">
+              <Shield className="w-5 h-5 stroke-[2.5]" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-                  A.R.K
-                </h1>
-                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-widest">
-                  Daraga, Albay
-                </span>
+                <span className="text-lg font-black tracking-tight text-white">A.R.K</span>
+                <span className="text-[11px] font-semibold text-amber-400">Daraga</span>
               </div>
-              <p className="text-[11px] text-amber-300/90 font-medium hidden sm:block">
-                Accessible, Rescue, and Kinship &bull; Older Adults &amp; PWD Evacuation
+              <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
+                Accessible Evacuation Planning
               </p>
             </div>
           </div>
 
-          {/* TOP CONTROLS: CREATOR VS USER VIEW + 3-PHONE + NOTIFICATIONS */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* View Mode Switcher: User View vs Creator View */}
-            <div className="bg-slate-950 p-1 rounded-2xl border border-slate-800 flex items-center gap-1">
-              <button
-                onClick={() => setAppMode('user')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
-                  appMode === 'user'
-                    ? 'bg-amber-500 text-slate-950 shadow-md ring-1 ring-amber-400'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>User View</span>
-              </button>
-
-              <button
-                onClick={() => setAppMode('creator')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
-                  appMode === 'creator'
-                    ? 'bg-amber-500 text-slate-950 shadow-md ring-1 ring-amber-400'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>Creator View</span>
-              </button>
-            </div>
-
-            {/* 3-Phone / Install on Phone Modal Trigger */}
+          {/* Primary View Switcher: User View | Creator View | Phone View */}
+          <nav aria-label="Main Navigation" className="flex items-center gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800">
             <button
-              onClick={() => setShowPhoneModal(true)}
-              className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
-              title="Open QR Code and install on 3 phones"
+              onClick={() => setAppMode('user')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+                appMode === 'user'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
             >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">📱 3 Phones / PWA</span>
+              <Users className="w-3.5 h-3.5" />
+              <span>Desktop View</span>
             </button>
 
-            {/* Notification Bell with Chime & Dropdown Drawer */}
+            <button
+              onClick={() => setAppMode('creator')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+                appMode === 'creator'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>Creator View</span>
+            </button>
+
+            <button
+              onClick={() => setAppMode('phone')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+                (appMode as string) === 'phone'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Phone View</span>
+            </button>
+          </nav>
+
+          {/* Right Utility Actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Phone Modal / QR link */}
+            <button
+              onClick={() => setShowPhoneModal(true)}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Open QR Code to connect mobile phones"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Connect Phone</span>
+            </button>
+
+            {/* Notification Bell */}
             <NotificationCenter
               notifications={notifications}
               isOpen={isNotifOpen}
@@ -583,42 +657,30 @@ export const App: React.FC = () => {
               onEnableSound={handleUnlockSound}
             />
 
-            {/* Accessibility Buttons */}
+            {/* Contrast Toggle */}
             <button
               onClick={() => setHighContrast(!highContrast)}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+              className={`p-1.5 rounded-lg text-xs font-semibold flex items-center transition-colors cursor-pointer ${
                 highContrast
-                  ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-300'
+                  ? 'bg-amber-400 text-slate-950'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
               }`}
+              title="Toggle High Contrast Mode"
             >
-              <Contrast className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{highContrast ? 'Contrast: ON' : 'Contrast'}</span>
+              <Contrast className="w-4 h-4" />
             </button>
 
-            <button
-              onClick={() => setLargeText(!largeText)}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer ${
-                largeText
-                  ? 'bg-blue-500 text-white ring-2 ring-blue-300'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
-              }`}
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{largeText ? 'Text: LARGE' : 'Large Text'}</span>
-            </button>
-
-            {/* Live Demo Trigger */}
+            {/* Live Demo Walkthrough Toggle */}
             <button
               onClick={() => setShowLiveDemo(!showLiveDemo)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
                 showLiveDemo
-                  ? 'bg-amber-400 text-slate-950 ring-4 ring-amber-400/40'
-                  : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20 active:scale-95'
+                  ? 'bg-amber-400 text-slate-950'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700'
               }`}
             >
-              <Sparkles className="w-4 h-4 fill-current" />
-              <span>{showLiveDemo ? 'Hide Demo' : '▶ Live Demo'}</span>
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{showLiveDemo ? 'Close Demo' : 'Live Demo'}</span>
             </button>
           </div>
         </div>
@@ -635,77 +697,6 @@ export const App: React.FC = () => {
           }}
           highContrast={highContrast}
         />
-
-        {/* 3. USER VIEW: 3-PHONE ROLE QUICK TOGGLE & INTERFACE TABS */}
-        {appMode === 'user' && (
-          <div className="bg-slate-900 border-t border-slate-800 px-4 sm:px-6">
-            <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 overflow-x-auto py-2.5">
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[11px] font-black uppercase text-amber-400 mr-1 hidden md:inline">
-                  3-Phone Live Demo:
-                </span>
-                {[
-                  {
-                    id: 'rider',
-                    label: '📱 Phone 1: Rider',
-                    sub: 'Elderly / PWD Request (Bilingual)',
-                    icon: <Users className="w-4 h-4" />,
-                  },
-                  {
-                    id: 'driver',
-                    label: '🚐 Phone 2: Driver',
-                    sub: 'BUS-01 Console (Kuya Ramon)',
-                    icon: <Truck className="w-4 h-4" />,
-                  },
-                  {
-                    id: 'shelter',
-                    label: '🏠 Phone 3: Shelter',
-                    sub: 'Burgos Covered Court Station',
-                    icon: <Home className="w-4 h-4" />,
-                  },
-                  {
-                    id: 'simulator',
-                    label: '📱 3-Phone Live View',
-                    sub: 'Triple Synchronized Simulator',
-                    icon: <Layers className="w-4 h-4" />,
-                  },
-                  {
-                    id: 'map',
-                    label: '🗺️ Live Daraga Map',
-                    sub: 'Road Network & Moving Buses',
-                    icon: <MapIcon className="w-4 h-4" />,
-                  },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setUserTab(tab.id as any)}
-                    className={`px-3.5 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shrink-0 cursor-pointer ${
-                      userTab === tab.id
-                        ? 'bg-amber-500 text-slate-950 shadow-lg ring-2 ring-amber-400 font-extrabold'
-                        : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/60'
-                    }`}
-                  >
-                    {tab.icon}
-                    <div className="text-left">
-                      <div className="font-extrabold leading-tight">{tab.label}</div>
-                      <div className="text-[10px] opacity-75 font-normal leading-none hidden lg:block">
-                        {tab.sub}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Quick Link to open on mobile */}
-              <button
-                onClick={() => setShowPhoneModal(true)}
-                className="text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1 shrink-0 ml-auto"
-              >
-                <span>Setup on 3 Phones</span>
-              </button>
-            </div>
-          </div>
-        )}
       </header>
 
       {/* 4. MAIN CONTENT */}
@@ -775,7 +766,37 @@ export const App: React.FC = () => {
 
           {/* USER VIEW: Dedicated Isolated Interfaces for Rider, Driver, Shelter, Map */}
           {appMode === 'user' && (
-            <>
+            <div className="space-y-6">
+              {/* Role Selection Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-2 rounded-2xl shadow-sm">
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline">Role:</span>
+                  {[
+                    { id: 'rider', label: 'Evacuee (Rider)', icon: <Users className="w-3.5 h-3.5" /> },
+                    { id: 'driver', label: 'Driver', icon: <Truck className="w-3.5 h-3.5" /> },
+                    { id: 'shelter', label: 'Shelter', icon: <Home className="w-3.5 h-3.5" /> },
+                    { id: 'map', label: 'Live Map', icon: <MapIcon className="w-3.5 h-3.5" /> },
+                    { id: 'simulator', label: '3-Phone Simulator', icon: <Layers className="w-3.5 h-3.5" /> },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setUserTab(tab.id as any)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+                        userTab === tab.id
+                          ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {tab.icon}
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2 pr-2 text-xs text-slate-400 hidden md:flex">
+                  <span>Selected: <strong className="text-slate-200 capitalize">{userTab === 'rider' ? 'Evacuee / Rider' : userTab}</strong></span>
+                </div>
+              </div>
               {userTab === 'rider' && (
                 <RiderInterface
                   residents={residents}
@@ -875,7 +896,7 @@ export const App: React.FC = () => {
                   />
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </main>
@@ -889,6 +910,11 @@ export const App: React.FC = () => {
           setUserTab(role);
         }}
         currentRole={userTab}
+        onSwitchToPhoneApp={(role) => {
+          if (role) setUserTab(role);
+          setAppMode('phone');
+          setShowPhoneModal(false);
+        }}
         onTriggerTestAlert={() => {
           dispatchNotification({
             type: 'hazard_alert',

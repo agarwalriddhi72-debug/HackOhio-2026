@@ -52,17 +52,12 @@ export const CreatorDashboard: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       {/* Creator / EOC Command Header */}
-      <div className="bg-slate-900 border-2 border-amber-500/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-4">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-black uppercase px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 tracking-wider">
-                ADMIN &bull; CREATOR VIEW
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-black text-white">
-                Daraga Emergency Operations Center (EOC) Dispatch Console
-              </h2>
-            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-white">
+              Emergency Operations Center (EOC) Dispatch Console
+            </h2>
             <p className="text-xs sm:text-sm text-slate-300 mt-1">
               Global system management: View all riders across Daraga, inspect and control the entire vehicle fleet, manage all 162 shelters, and configure road hazard blockages.
             </p>
